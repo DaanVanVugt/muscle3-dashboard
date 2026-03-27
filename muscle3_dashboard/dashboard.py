@@ -188,8 +188,10 @@ class Dashboard(pn.viewable.Viewer):
             # Update component status
             self.component_status_table.value = pd.DataFrame(
                 {
-                    "status": self.manager_log_analyzer.component_status,
-                    "exitcode": self.manager_log_analyzer.component_exitcode,
+                    # "status": self.manager_log_analyzer.component_status,
+                    # "exitcode": self.manager_log_analyzer.component_exitcode,
+                    "status": self.manager_log_analyzer.var_dict('status'),
+                    "exitcode": self.manager_log_analyzer.var_dict('exit_code_message'),
                 }
             )
 

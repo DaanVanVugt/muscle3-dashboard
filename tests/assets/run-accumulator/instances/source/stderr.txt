@@ -1,0 +1,5 @@
+11:40:09 INFO     Parsing data dictionary version 4.0.0 [90m@dd_zip.py:89[0m
+INFO:imas.dd_zip:Parsing data dictionary version 4.0.0
+INFO:libmuscle.instance:Registered with the manager
+INFO:libmuscle.instance:Received peer locations and base settings
+INFO:libmuscle.instance:Deregistered from the manager

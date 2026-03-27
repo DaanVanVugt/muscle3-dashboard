@@ -1,0 +1,17 @@
+2026-03-27 11:40:04,951 INFO Agent at 98dci4-srv-1005.iter.org starting
+2026-03-27 11:40:04,951 INFO Connecting to manager at tcp:10.154.100.15:40517
+2026-03-27 11:40:04,961 INFO Connected to manager
+2026-03-27 11:40:04,961 INFO Reporting resources
+2026-03-27 11:40:04,962 INFO Found resources: OnNodeResources(98dci4-srv-1005.iter.org, c: 0-15(0-15))
+2026-03-27 11:40:05,165 INFO Starting process source
+2026-03-27 11:40:05,269 INFO Starting process accumulator
+2026-03-27 11:40:05,374 INFO Starting process accumulator_optional_port
+2026-03-27 11:40:05,479 INFO Starting process sink
+2026-03-27 11:40:05,584 INFO Starting process sink_optional_port
+2026-03-27 11:40:10,511 INFO Process source finished with exit code 0
+2026-03-27 11:40:10,813 INFO Process accumulator finished with exit code 0
+2026-03-27 11:40:10,914 INFO Process accumulator_optional_port finished with exit code 0
+2026-03-27 11:40:10,914 INFO Process sink finished with exit code 0
+2026-03-27 11:40:11,015 INFO Process sink_optional_port finished with exit code 0
+2026-03-27 11:40:11,216 INFO Cancelling all instances
+2026-03-27 11:40:11,316 INFO Agent shutting down

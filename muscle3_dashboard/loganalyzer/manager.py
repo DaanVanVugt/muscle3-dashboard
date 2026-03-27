@@ -1,4 +1,5 @@
 import re
+import signal
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -8,11 +9,11 @@ from bokeh.core.serialization import Serializable, Serializer
 
 _LOGPARSER = re.compile(
     r"""
-    ^(?P<component>\S+)     # Source of log message: muscle_manager or remote component
-    \ (?P<datetime>\S+\ \S+) # Lazy way to capture the date + time
-    \ (?P<loglevel>\S+)     # Log level: INFO / DEBUG / etc.
-    \ +(?P<name>\S+):        # Python module for manager logs, or remote component name
-    \s*(?P<message>.*)$        # Log message
+    ^(?P<component>\S+)         # Source of log message: muscle_manager or remote component
+    \ (?P<datetime>\S+\ \S+)    # Lazy way to capture the date + time
+    \ (?P<loglevel>\S+)         # Log level: INFO / DEBUG / etc.
+    \ +(?P<name>\S+):           # Python module for manager logs, or remote component name
+    \s*(?P<message>.*)$         # Log message
     """,
     re.VERBOSE,
 )
@@ -48,20 +49,15 @@ class ManagerLogAnalyzer(param.Parameterized):
 
     messages_per_level = param.Dict()
     """Number of parsed messages per log level"""
-
-    component_status = param.Dict()
-    """Status per component"""
-    component_exitcode = param.Dict()
-    """Exit code per component (only filled for finished components)"""
+    components = param.Dict()
 
     def __init__(self, logfile: Path, components: list[str]) -> None:
         super().__init__()
         self._path: Path = logfile
-        self._components: list[str] = components
-        self._component_status: dict[str, ComponentStatus] = {
-            component: ComponentStatus.NOT_STARTED for component in components
+        self.components: dict[str, Component] = {
+            component: Component(component, status=ComponentStatus.NOT_STARTED, exit_code='')
+            for component in components
         }
-        self._component_exitcode: dict[str, int] = {}
         self._file = logfile.open("r")
         self._messages_per_level: dict[str, int] = {
             "DEBUG": 0,
@@ -102,31 +98,81 @@ class ManagerLogAnalyzer(param.Parameterized):
             lines_read=self._lines_read,
             lines_parsed=self._lines_parsed,
             messages_per_level=self._messages_per_level.copy(),
-            component_status=self._component_status.copy(),
-            component_exitcode=self._component_exitcode.copy(),
+            components=self.components.copy(),
         )
 
     def _parse_manager_log_message(self, message: str) -> None:
+        component = None
+        exit_code = None
+        status = None
         if message.startswith("Libmuscle version"):
             self.muscle_manager_version = message.split()[-1]
         elif message.startswith("Planned"):
             _, component, _ = message.split(maxsplit=2)
-            self._component_status[component] = ComponentStatus.PLANNED
+            status = ComponentStatus.PLANNED
         elif message.startswith("Instantiating"):
             _, component = message.split(maxsplit=1)
-            self._component_status[component] = ComponentStatus.INSTANTIATING
+            status = ComponentStatus.INSTANTIATING
         elif message.startswith("Registered"):
             _, _, component = message.split(maxsplit=2)
-            self._component_status[component] = ComponentStatus.REGISTERED
+            status = ComponentStatus.REGISTERED
         elif message.startswith("Deregistered"):
             _, _, component = message.split(maxsplit=2)
-            self._component_status[component] = ComponentStatus.DEREGISTERED
-        elif "finished" in message:
+            status = ComponentStatus.DEREGISTERED
+        elif any(word in message for word in ['finished', 'quit', 'crashed']):
             if message.startswith("Instance"):
                 _, component, _ = message.split(maxsplit=2)
-                _, exitcode = message.rsplit(maxsplit=1)
-                self._component_status[component] = ComponentStatus.FINISHED
-                self._component_exitcode[component] = int(exitcode)
+                status = ComponentStatus.FINISHED
+                if 'crashed' in message:
+                    exit_code = 'crashed'
+                else:
+                    _, exit_code = message.rsplit(maxsplit=1)
             else:
                 # The simulation finished
                 self.status = message
+                return
+        else:
+            # Continue to next message
+            return
+        # fill in components
+        if component is not None and component not in self.components.keys():
+            self.components[component] = Component(
+                name=component,
+                status=status,
+                exit_code=exit_code
+            )
+        if exit_code is not None:
+            self.components[component].exit_code = exit_code
+        if status is not None:
+            self.components[component].status = status
+
+    def var_dict(self, var):
+        my_dict = {
+           name: getattr(self.components[name], var)
+           for name in self.components.keys()
+           if getattr(self.components[name], var)
+        }
+        return my_dict
+
+
+class Component:
+    def __init__(self, name, exit_code='', status=ComponentStatus.NOT_STARTED):
+        self.name = name
+        self.exit_code = exit_code
+        self.status: ComponentStatus = status
+
+    @property
+    def exit_code_message(self):
+        if is_int(self.exit_code) and int(self.exit_code) < 0:
+            msg = f"{str(self.exit_code)}: {signal.strsignal(-1 * int(self.exit_code))}"
+        else:
+            msg = str(self.exit_code)
+        return msg
+
+
+def is_int(s: str):
+    try:
+        int(s)
+        return True
+    except ValueError:
+        return False

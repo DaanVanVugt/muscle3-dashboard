@@ -1,0 +1,30 @@
+muscle_manager 2026-03-27 11:40:03,710 INFO    libmuscle.native_instantiator.global_resources: Running locally without a cluster scheduler
+muscle_manager 2026-03-27 11:40:03,710 INFO    libmuscle.native_instantiator.global_resources: We have 16 logical CPUS available
+muscle_manager 2026-03-27 11:40:03,712 INFO    libmuscle.native_instantiator.agent_manager: Launching MUSCLE agents...
+muscle_manager 2026-03-27 11:40:05,017 INFO    libmuscle.native_instantiator.agent_manager: All agents running on {'98dci4-srv-1005.iter.org': '98dci4-srv-1005.iter.org'}
+muscle_manager 2026-03-27 11:40:05,023 INFO    libmuscle.manager.instance_manager: Planned source on Resources(OnNodeResources(98dci4-srv-1005.iter.org, c: 0(0)))
+muscle_manager 2026-03-27 11:40:05,023 INFO    libmuscle.manager.instance_manager: Planned accumulator on Resources(OnNodeResources(98dci4-srv-1005.iter.org, c: 1(1)))
+muscle_manager 2026-03-27 11:40:05,023 INFO    libmuscle.manager.instance_manager: Planned accumulator_optional_port on Resources(OnNodeResources(98dci4-srv-1005.iter.org, c: 2(2)))
+muscle_manager 2026-03-27 11:40:05,023 INFO    libmuscle.manager.instance_manager: Planned sink on Resources(OnNodeResources(98dci4-srv-1005.iter.org, c: 1(1)))
+muscle_manager 2026-03-27 11:40:05,024 INFO    libmuscle.manager.instance_manager: Planned sink_optional_port on Resources(OnNodeResources(98dci4-srv-1005.iter.org, c: 2(2)))
+muscle_manager 2026-03-27 11:40:05,025 INFO    libmuscle.manager.instance_manager: Instantiating source
+muscle_manager 2026-03-27 11:40:05,027 INFO    libmuscle.manager.instance_manager: Instantiating accumulator
+muscle_manager 2026-03-27 11:40:05,027 INFO    libmuscle.manager.instance_manager: Instantiating accumulator_optional_port
+muscle_manager 2026-03-27 11:40:05,028 INFO    libmuscle.manager.instance_manager: Instantiating sink
+muscle_manager 2026-03-27 11:40:05,029 INFO    libmuscle.manager.instance_manager: Instantiating sink_optional_port
+muscle_manager 2026-03-27 11:40:09,284 INFO    libmuscle.manager.mmp_server: Registered instance sink
+muscle_manager 2026-03-27 11:40:09,284 INFO    libmuscle.manager.mmp_server: Registered instance sink_optional_port
+muscle_manager 2026-03-27 11:40:09,698 INFO    libmuscle.manager.mmp_server: Registered instance accumulator_optional_port
+muscle_manager 2026-03-27 11:40:09,699 INFO    libmuscle.manager.mmp_server: Registered instance accumulator
+muscle_manager 2026-03-27 11:40:09,699 INFO    libmuscle.manager.mmp_server: Registered instance source
+muscle_manager 2026-03-27 11:40:10,152 INFO    libmuscle.manager.mmp_server: Deregistered instance source
+muscle_manager 2026-03-27 11:40:10,566 INFO    libmuscle.manager.mmp_server: Deregistered instance accumulator
+muscle_manager 2026-03-27 11:40:10,573 INFO    libmuscle.manager.mmp_server: Deregistered instance accumulator_optional_port
+muscle_manager 2026-03-27 11:40:10,581 INFO    libmuscle.manager.mmp_server: Deregistered instance sink
+muscle_manager 2026-03-27 11:40:10,583 INFO    libmuscle.manager.mmp_server: Deregistered instance sink_optional_port
+muscle_manager 2026-03-27 11:40:11,036 INFO    libmuscle.manager.instance_manager: Instance source finished with exit code 0
+muscle_manager 2026-03-27 11:40:11,036 INFO    libmuscle.manager.instance_manager: Instance accumulator finished with exit code 0
+muscle_manager 2026-03-27 11:40:11,036 INFO    libmuscle.manager.instance_manager: Instance accumulator_optional_port finished with exit code 0
+muscle_manager 2026-03-27 11:40:11,036 INFO    libmuscle.manager.instance_manager: Instance sink finished with exit code 0
+muscle_manager 2026-03-27 11:40:11,036 INFO    libmuscle.manager.instance_manager: Instance sink_optional_port finished with exit code 0
+muscle_manager 2026-03-27 11:40:11,036 INFO    libmuscle.manager.instance_manager: The simulation finished without error.
