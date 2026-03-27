@@ -55,7 +55,9 @@ class ManagerLogAnalyzer(param.Parameterized):
         super().__init__()
         self._path: Path = logfile
         self.components: dict[str, Component] = {
-            component: Component(component, status=ComponentStatus.NOT_STARTED, exit_code='')
+            component: Component(
+                component, status=ComponentStatus.NOT_STARTED, exit_code=""
+            )
             for component in components
         }
         self._file = logfile.open("r")
@@ -119,12 +121,12 @@ class ManagerLogAnalyzer(param.Parameterized):
         elif message.startswith("Deregistered"):
             _, _, component = message.split(maxsplit=2)
             status = ComponentStatus.DEREGISTERED
-        elif any(word in message for word in ['finished', 'quit', 'crashed']):
+        elif any(word in message for word in ["finished", "quit", "crashed"]):
             if message.startswith("Instance"):
                 _, component, _ = message.split(maxsplit=2)
                 status = ComponentStatus.FINISHED
-                if 'crashed' in message:
-                    exit_code = 'crashed'
+                if "crashed" in message:
+                    exit_code = "crashed"
                 else:
                     _, exit_code = message.rsplit(maxsplit=1)
             else:
@@ -137,9 +139,7 @@ class ManagerLogAnalyzer(param.Parameterized):
         # fill in components
         if component is not None and component not in self.components.keys():
             self.components[component] = Component(
-                name=component,
-                status=status,
-                exit_code=exit_code
+                name=component, status=status, exit_code=exit_code
             )
         if exit_code is not None:
             self.components[component].exit_code = exit_code
@@ -148,15 +148,15 @@ class ManagerLogAnalyzer(param.Parameterized):
 
     def var_dict(self, var):
         my_dict = {
-           name: getattr(self.components[name], var)
-           for name in self.components.keys()
-           if getattr(self.components[name], var)
+            name: getattr(self.components[name], var)
+            for name in self.components.keys()
+            if getattr(self.components[name], var)
         }
         return my_dict
 
 
 class Component:
-    def __init__(self, name, exit_code='', status=ComponentStatus.NOT_STARTED):
+    def __init__(self, name, exit_code="", status=ComponentStatus.NOT_STARTED):
         self.name = name
         self.exit_code = exit_code
         self.status: ComponentStatus = status

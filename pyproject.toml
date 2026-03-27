@@ -25,6 +25,7 @@ dev = [
     "ruff",
     "pytest",
     "pytest-cov",
+    "isort",
 ]
 
 [project.urls]
