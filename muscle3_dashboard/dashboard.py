@@ -86,7 +86,7 @@ class Dashboard(pn.viewable.Viewer):
         if self.manager_log_analyzer is not None:
             self.manager_log_analyzer.update()
             # Update manager log items
-            # self.log_table.patch(
+            # TODO: fix 'Total' counter
             self.log_messages_table_viewer.log_table.patch(
                 pd.DataFrame(
                     self.manager_log_analyzer.messages_per_level,
@@ -96,8 +96,6 @@ class Dashboard(pn.viewable.Viewer):
             # Update component status
             self.status_table_viewer.component_status_table.value = pd.DataFrame(
                 {
-                    # "status": self.manager_log_analyzer.component_status,
-                    # "exitcode": self.manager_log_analyzer.component_exitcode,
                     "status": self.manager_log_analyzer.var_dict("status"),
                     "exitcode": self.manager_log_analyzer.var_dict("exit_code_message"),
                 }

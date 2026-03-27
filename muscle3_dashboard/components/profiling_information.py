@@ -8,7 +8,7 @@ class ProfilingInformationViewer(pn.viewable.Viewer):
         super().__init__()
         self.card = pn.Card(
             "<em>Placeholder</em> No crash detected",
-            title="Crash analysis",
+            title="Profiling information",
             margin=CARD_MARGIN,
             sizing_mode="stretch_width",
         )

@@ -28,7 +28,7 @@ class LogFilesViewer(pn.viewable.Viewer):
             max_height=800,
             stylesheets=[".bk-tab {text-align: right;}"],
         )
-        self.card = pn.Card(tabs, margin=CARD_MARGIN, title="Log file viewer")
+        self.card = pn.Card(tabs, margin=CARD_MARGIN, title="Log files")
 
     def __panel__(self):
         return self.card
