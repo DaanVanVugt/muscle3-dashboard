@@ -7,13 +7,18 @@ from pathlib import Path
 import param
 from bokeh.core.serialization import Serializable, Serializer
 
+# Source of log message: muscle_manager or remote component
+# Lazy way to capture the date + time
+# Log level: INFO / DEBUG / etc.
+# Python module for manager logs, or remote component name
+# Log message
 _LOGPARSER = re.compile(
     r"""
-    ^(?P<component>\S+)         # Source of log message: muscle_manager or remote component
-    \ (?P<datetime>\S+\ \S+)    # Lazy way to capture the date + time
-    \ (?P<loglevel>\S+)         # Log level: INFO / DEBUG / etc.
-    \ +(?P<name>\S+):           # Python module for manager logs, or remote component name
-    \s*(?P<message>.*)$         # Log message
+    ^(?P<component>\S+)
+    \ (?P<datetime>\S+\ \S+)
+    \ (?P<loglevel>\S+)
+    \ +(?P<name>\S+):
+    \s*(?P<message>.*)$
     """,
     re.VERBOSE,
 )
@@ -137,7 +142,7 @@ class ManagerLogAnalyzer(param.Parameterized):
             # Continue to next message
             return
         # fill in components
-        if component is not None and component not in self.components.keys():
+        if component is not None and component not in self.components:
             self.components[component] = Component(
                 name=component, status=status, exit_code=exit_code
             )
@@ -149,7 +154,7 @@ class ManagerLogAnalyzer(param.Parameterized):
     def var_dict(self, var):
         my_dict = {
             name: getattr(self.components[name], var)
-            for name in self.components.keys()
+            for name in self.components
             if getattr(self.components[name], var)
         }
         return my_dict

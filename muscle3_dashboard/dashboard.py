@@ -7,11 +7,11 @@ from bokeh.application.application import SessionContext
 
 from muscle3_dashboard.components.crash_analysis import CrashAnalysisViewer
 from muscle3_dashboard.components.log_files import LogFilesViewer
-from muscle3_dashboard.components.log_messages_table import \
-    LogMessagesTableViewer
+from muscle3_dashboard.components.log_messages_table import LogMessagesTableViewer
 from muscle3_dashboard.components.overview import OverviewViewer
-from muscle3_dashboard.components.profiling_information import \
-    ProfilingInformationViewer
+from muscle3_dashboard.components.profiling_information import (
+    ProfilingInformationViewer,
+)
 from muscle3_dashboard.components.status_table import StatusTableViewer
 from muscle3_dashboard.components.ymmsl_graph import YmmslGraphViewer
 from muscle3_dashboard.loganalyzer.manager import ManagerLogAnalyzer
