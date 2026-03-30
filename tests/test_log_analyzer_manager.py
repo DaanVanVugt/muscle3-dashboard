@@ -1,14 +1,14 @@
 import datetime
+from pathlib import Path
 
 import pytest
 
-from muscle3_dashboard import get_project_root
 from muscle3_dashboard.loganalyzer.manager import ComponentStatus, ManagerLogAnalyzer
 
 
 @pytest.fixture
 def assets_path():
-    return get_project_root() / "tests" / "assets"
+    return Path(__file__).parent / "assets"
 
 
 def test_successful_run(assets_path):
