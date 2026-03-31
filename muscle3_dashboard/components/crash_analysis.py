@@ -4,6 +4,9 @@ from muscle3_dashboard.constants import CARD_MARGIN
 
 
 class CrashAnalysisViewer(pn.viewable.Viewer):
+    """Panel component showing the most likely components responsible for a
+    simulation crash"""
+
     def __init__(self) -> None:
         super().__init__()
         self.components_exit_code_dict = {}
@@ -16,11 +19,13 @@ class CrashAnalysisViewer(pn.viewable.Viewer):
         )
 
     def update(self, components_exit_code_dict):
+        """Method to update thi crash analysis viewer from outside"""
         self.components_exit_code_dict = components_exit_code_dict
         self.markdown.object = self.markdown_str
 
     @property
     def markdown_str(self):
+        """Build string for markdown based on inner state"""
         crashed_components = {
             name: exit_code_message
             for name, exit_code_message in self.components_exit_code_dict.items()
