@@ -1,0 +1,31 @@
+muscle_manager 2026-03-27 11:40:13,615 INFO    libmuscle.native_instantiator.global_resources: Running locally without a cluster scheduler
+muscle_manager 2026-03-27 11:40:13,615 INFO    libmuscle.native_instantiator.global_resources: We have 16 logical CPUS available
+muscle_manager 2026-03-27 11:40:13,616 INFO    libmuscle.native_instantiator.agent_manager: Launching MUSCLE agents...
+muscle_manager 2026-03-27 11:40:14,921 INFO    libmuscle.native_instantiator.agent_manager: All agents running on {'98dci4-srv-1005.iter.org': '98dci4-srv-1005.iter.org'}
+muscle_manager 2026-03-27 11:40:14,926 INFO    libmuscle.manager.instance_manager: Planned source on Resources(OnNodeResources(98dci4-srv-1005.iter.org, c: 0(0)))
+muscle_manager 2026-03-27 11:40:14,926 INFO    libmuscle.manager.instance_manager: Planned sink on Resources(OnNodeResources(98dci4-srv-1005.iter.org, c: 1(1)))
+muscle_manager 2026-03-27 11:40:14,927 INFO    libmuscle.manager.instance_manager: Planned chease on Resources(OnNodeResources(98dci4-srv-1005.iter.org, c: 1(1)))
+muscle_manager 2026-03-27 11:40:14,928 INFO    libmuscle.manager.instance_manager: Instantiating source
+muscle_manager 2026-03-27 11:40:14,930 INFO    libmuscle.manager.instance_manager: Instantiating sink
+muscle_manager 2026-03-27 11:40:14,931 INFO    libmuscle.manager.instance_manager: Instantiating chease
+muscle_manager 2026-03-27 11:40:15,934 ERROR   libmuscle.manager.instance_manager: Instance chease quit with exit code 127
+muscle_manager 2026-03-27 11:40:15,935 ERROR   libmuscle.manager.instance_manager: Instance source quit with exit code -9
+muscle_manager 2026-03-19 15:19:31,882 WARNING libmuscle.manager.instance_manager: Instance sink crashed, likely because an error occurred elsewhere.
+muscle_manager 2026-03-27 11:40:15,936 ERROR   libmuscle.manager.instance_manager: The last error output of chease was:
+muscle_manager 2026-03-27 11:40:15,936 ERROR   libmuscle.manager.instance_manager: 
+
+
+muscle_manager 2026-03-27 11:40:15,936 ERROR   libmuscle.manager.instance_manager: More output may be found in /home/ITER/sanderm/gitrepos/pds/run/tmp/m3_runs/run-2026-03-27-114011-test_chease_actor/instances/chease
+
+muscle_manager 2026-03-27 11:40:15,936 ERROR   libmuscle.manager.instance_manager: The last error output of source was:
+muscle_manager 2026-03-27 11:40:15,936 ERROR   libmuscle.manager.instance_manager: 
+
+
+muscle_manager 2026-03-27 11:40:15,936 ERROR   libmuscle.manager.instance_manager: More output may be found in /home/ITER/sanderm/gitrepos/pds/run/tmp/m3_runs/run-2026-03-27-114011-test_chease_actor/instances/source
+
+muscle_manager 2026-03-27 11:40:15,936 ERROR   libmuscle.manager.instance_manager: The last error output of sink was:
+muscle_manager 2026-03-27 11:40:15,936 ERROR   libmuscle.manager.instance_manager: 
+
+
+muscle_manager 2026-03-27 11:40:15,936 ERROR   libmuscle.manager.instance_manager: More output may be found in /home/ITER/sanderm/gitrepos/pds/run/tmp/m3_runs/run-2026-03-27-114011-test_chease_actor/instances/sink
+

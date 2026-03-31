@@ -10,7 +10,8 @@ import click
 @click.version_option()
 def main(run_folder: Path) -> None:
     """TODO"""
-    # Local import to not import all of panel when doing `muscle_dashboard --help`
+    # Local import to not import all of panel when doing
+    # `muscle_dashboard --help`
     import panel as pn
 
     from .dashboard import Dashboard

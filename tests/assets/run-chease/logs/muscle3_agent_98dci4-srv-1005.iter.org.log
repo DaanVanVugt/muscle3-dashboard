@@ -1,0 +1,14 @@
+2026-03-27 11:40:14,826 INFO Agent at 98dci4-srv-1005.iter.org starting
+2026-03-27 11:40:14,826 INFO Connecting to manager at tcp:10.154.100.15:36121
+2026-03-27 11:40:14,843 INFO Connected to manager
+2026-03-27 11:40:14,843 INFO Reporting resources
+2026-03-27 11:40:14,844 INFO Found resources: OnNodeResources(98dci4-srv-1005.iter.org, c: 0-15(0-15))
+2026-03-27 11:40:15,046 INFO Starting process source
+2026-03-27 11:40:15,150 INFO Starting process sink
+2026-03-27 11:40:15,255 INFO Starting process chease
+2026-03-27 11:40:15,561 INFO Process chease finished with exit code 127
+2026-03-27 11:40:15,762 INFO Cancelling all instances
+2026-03-27 11:40:15,862 INFO Process source finished with exit code -9
+2026-03-27 11:40:15,863 INFO Process sink finished with exit code -9
+2026-03-27 11:40:16,064 INFO Cancelling all instances
+2026-03-27 11:40:16,164 INFO Agent shutting down

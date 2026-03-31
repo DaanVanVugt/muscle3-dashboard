@@ -1,0 +1,7 @@
+2026-03-27 11:40:09,268 - root - INFO - Starting accumulator actor
+11:40:09 INFO     Parsing data dictionary version 4.0.0 [90m@dd_zip.py:89[0m
+2026-03-27 11:40:09,396 - imas.dd_zip - INFO - Parsing data dictionary version 4.0.0
+2026-03-27 11:40:09,699 - libmuscle.instance - INFO - Registered with the manager
+2026-03-27 11:40:09,701 - libmuscle.instance - INFO - Received peer locations and base settings
+2026-03-27 11:40:09,784 - libmuscle.communicator - INFO - Connecting to peer source at ['tcp:10.154.100.15:33089']
+2026-03-27 11:40:10,573 - libmuscle.instance - INFO - Deregistered from the manager

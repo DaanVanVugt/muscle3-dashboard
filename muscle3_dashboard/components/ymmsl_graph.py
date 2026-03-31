@@ -1,5 +1,7 @@
 import panel as pn
 
+from muscle3_dashboard.constants import CARD_MARGIN
+
 
 class PlacholderGraph:
     def _repr_svg_(self):
@@ -44,6 +46,12 @@ class YmmslGraphViewer(pn.viewable.Viewer):
     def __init__(self) -> None:
         super().__init__()
         self.svg = pn.pane.SVG(PlacholderGraph(), align="center")
+        self.card = pn.Card(
+            self.svg,
+            title="Simulation graph (placeholder)",
+            sizing_mode="stretch_width",
+            margin=CARD_MARGIN,
+        )
 
     def __panel__(self):
-        return self.svg
+        return self.card

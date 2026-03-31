@@ -1,24 +1,29 @@
 import re
+import signal
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
+import pandas as pd
 import param
 from bokeh.core.serialization import Serializable, Serializer
 
 _LOGPARSER = re.compile(
     r"""
-    ^(?P<component>\S+)     # Source of log message: muscle_manager or remote component
-    \ (?P<datetime>\S+\ \S+) # Lazy way to capture the date + time
-    \ (?P<loglevel>\S+)     # Log level: INFO / DEBUG / etc.
-    \ +(?P<name>\S+):        # Python module for manager logs, or remote component name
-    \s*(?P<message>.*)$        # Log message
-    """,
+    ^(?P<component>\S+)         # Source of log message: muscle_manager or remote component
+    \ (?P<datetime>\S+\ \S+)    # Lazy way to capture the date + time
+    \ (?P<loglevel>\S+)         # Log level: INFO / DEBUG / etc.
+    \ +(?P<name>\S+):           # Python module for manager logs, or remote component name
+    \s*(?P<message>.*)$         # Log message
+    """,  # noqa: E501
     re.VERBOSE,
 )
 
 
 class ComponentStatus(Serializable, Enum):
+    """Defines the status in the simulation for given component"""
+
     NOT_STARTED = "Not started"
     PLANNED = "Planned"
     INSTANTIATING = "Instantiating"
@@ -31,7 +36,29 @@ class ComponentStatus(Serializable, Enum):
         return self.value
 
 
+@dataclass
+class Component:
+    """Class to keep track of exit_code and status per muscle3 component"""
+
+    name: str
+    exit_code: str = ""
+    status: ComponentStatus = ComponentStatus.NOT_STARTED
+
+    @property
+    def exit_code_message(self):
+        """Show standard meaning for given exit code if available"""
+        try:
+            if int(self.exit_code) < 0:
+                exit_code_str = signal.strsignal(-1 * int(self.exit_code))
+                return f"{str(self.exit_code)}: {exit_code_str}"
+        except ValueError:
+            pass  # exit_code could not be parsed as integer
+        return self.exit_code
+
+
 class ManagerLogAnalyzer(param.Parameterized):
+    """Log analyzer for muscle_manager log file"""
+
     muscle_manager_version = param.String(default="unknown")
     """Version string of the muscle manager"""
     start_time = param.Date()
@@ -49,19 +76,15 @@ class ManagerLogAnalyzer(param.Parameterized):
     messages_per_level = param.Dict()
     """Number of parsed messages per log level"""
 
-    component_status = param.Dict()
-    """Status per component"""
-    component_exitcode = param.Dict()
-    """Exit code per component (only filled for finished components)"""
-
     def __init__(self, logfile: Path, components: list[str]) -> None:
         super().__init__()
         self._path: Path = logfile
-        self._components: list[str] = components
-        self._component_status: dict[str, ComponentStatus] = {
-            component: ComponentStatus.NOT_STARTED for component in components
+        self.components: dict[str, Component] = {
+            component: Component(
+                component, status=ComponentStatus.NOT_STARTED, exit_code=""
+            )
+            for component in components
         }
-        self._component_exitcode: dict[str, int] = {}
         self._file = logfile.open("r")
         self._messages_per_level: dict[str, int] = {
             "DEBUG": 0,
@@ -77,6 +100,7 @@ class ManagerLogAnalyzer(param.Parameterized):
         self.update()
 
     def update(self) -> None:
+        """Parse new lines of log file and update parsed information"""
         # Parse currently available log lines
         for line in self._file:
             self._lines_read += 1
@@ -102,31 +126,51 @@ class ManagerLogAnalyzer(param.Parameterized):
             lines_read=self._lines_read,
             lines_parsed=self._lines_parsed,
             messages_per_level=self._messages_per_level.copy(),
-            component_status=self._component_status.copy(),
-            component_exitcode=self._component_exitcode.copy(),
         )
 
     def _parse_manager_log_message(self, message: str) -> None:
+        """Obtain status and exit code for given component by parsing log
+        message"""
         if message.startswith("Libmuscle version"):
             self.muscle_manager_version = message.split()[-1]
         elif message.startswith("Planned"):
             _, component, _ = message.split(maxsplit=2)
-            self._component_status[component] = ComponentStatus.PLANNED
+            self._comp(component).status = ComponentStatus.PLANNED
         elif message.startswith("Instantiating"):
             _, component = message.split(maxsplit=1)
-            self._component_status[component] = ComponentStatus.INSTANTIATING
+            self._comp(component).status = ComponentStatus.INSTANTIATING
         elif message.startswith("Registered"):
             _, _, component = message.split(maxsplit=2)
-            self._component_status[component] = ComponentStatus.REGISTERED
+            self._comp(component).status = ComponentStatus.REGISTERED
         elif message.startswith("Deregistered"):
             _, _, component = message.split(maxsplit=2)
-            self._component_status[component] = ComponentStatus.DEREGISTERED
-        elif "finished" in message:
+            self._comp(component).status = ComponentStatus.DEREGISTERED
+        elif any(word in message for word in ["finished", "quit", "crashed"]):
             if message.startswith("Instance"):
                 _, component, _ = message.split(maxsplit=2)
-                _, exitcode = message.rsplit(maxsplit=1)
-                self._component_status[component] = ComponentStatus.FINISHED
-                self._component_exitcode[component] = int(exitcode)
+                self._comp(component).status = ComponentStatus.FINISHED
+                if "crashed" in message:
+                    self._comp(component).exit_code = "crashed"
+                else:
+                    _, exit_code = message.rsplit(maxsplit=1)
+                    self._comp(component).exit_code = exit_code
             else:
                 # The simulation finished
                 self.status = message
+
+    def _comp(self, name: str) -> Component:
+        """Instantiate if necessary and get component object for given name"""
+        if name not in self.components:
+            self.components[name] = Component(name)
+        return self.components[name]
+
+    def to_dataframe(self) -> pd.DataFrame:
+        """Create dataframe for status table viewer"""
+        return pd.DataFrame(
+            {
+                "name": component.name,
+                "status": component.status,
+                "exit_code": component.exit_code_message,
+            }
+            for component in self.components.values()
+        ).set_index("name")

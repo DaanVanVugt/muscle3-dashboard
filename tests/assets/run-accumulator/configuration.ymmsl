@@ -1,0 +1,74 @@
+ymmsl_version: v0.1
+model:
+  name: test_accumulator_actor
+  components:
+    source:
+      ports:
+        o_i:
+        - equilibrium_out
+      implementation: source
+    accumulator:
+      ports:
+        s:
+        - equilibrium_in
+        o_f:
+        - equilibrium_out
+      implementation: accumulator
+    accumulator_optional_port:
+      ports:
+        s:
+        - equilibrium_in
+        - t_next
+        o_f:
+        - equilibrium_out
+      implementation: accumulator
+    sink:
+      ports:
+        f_init:
+        - equilibrium_in
+      implementation: sink
+    sink_optional_port:
+      ports:
+        f_init:
+        - equilibrium_in
+      implementation: sink
+  conduits:
+    source.equilibrium_out:
+    - accumulator.equilibrium_in
+    - accumulator_optional_port.equilibrium_in
+    - accumulator_optional_port.t_next
+    accumulator.equilibrium_out: sink.equilibrium_in
+    accumulator_optional_port.equilibrium_out: sink_optional_port.equilibrium_in
+settings:
+  source.source_uri: imas:hdf5?path=/home/ITER/sanderm/gitrepos/pds/run/input/test_data_ids/
+  sink.sink_uri: imas:hdf5?path=/home/ITER/sanderm/gitrepos/pds/run/output/sink_accumulator
+  sink.sink_mode: w
+  sink_optional_port.sink_uri: imas:hdf5?path=/home/ITER/sanderm/gitrepos/pds/run/output/sink_accumulator_optional_port
+  sink_optional_port.sink_mode: w
+implementations:
+  sink:
+    virtual_env: /home/ITER/sanderm/gitrepos/pds/run/IMAS-MUSCLE3/venv
+    executable: python
+    args:
+    - -u -m imas_muscle3.actors.sink_component
+  source:
+    virtual_env: /home/ITER/sanderm/gitrepos/pds/run/IMAS-MUSCLE3/venv
+    executable: python
+    args:
+    - -u -m imas_muscle3.actors.source_component
+  accumulator:
+    virtual_env: /home/ITER/sanderm/gitrepos/pds/run/IMAS-MUSCLE3/venv
+    executable: python
+    args:
+    - -u -m imas_muscle3.actors.accumulator_component
+resources:
+  source:
+    threads: 1
+  sink:
+    threads: 1
+  sink_optional_port:
+    threads: 1
+  accumulator:
+    threads: 1
+  accumulator_optional_port:
+    threads: 1
