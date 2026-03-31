@@ -15,6 +15,8 @@ from muscle3_dashboard.components.profiling_information import (
 from muscle3_dashboard.components.status_table import StatusTableViewer
 from muscle3_dashboard.components.ymmsl_graph import YmmslGraphViewer
 from muscle3_dashboard.loganalyzer.manager import ManagerLogAnalyzer
+from muscle3_dashboard.loganalyzer.stderr import StderrLogAnalyzer
+from muscle3_dashboard.loganalyzer.stdout import StdoutLogAnalyzer
 
 pn.extension("tabulator")
 
@@ -23,6 +25,8 @@ class Dashboard(pn.viewable.Viewer):
     def __init__(self, run_folder: Path | None = None) -> None:
         self.run_folder: Path | None = run_folder
         self.manager_log_analyzer: ManagerLogAnalyzer | None = None
+        self.stdout_log_analyzers: dict[str, StdoutLogAnalyzer] | None = None
+        self.stderr_log_analyzers: dict[str, StderrLogAnalyzer] | None = None
 
         self.template = pn.template.VanillaTemplate(
             collapsed_sidebar=True,
@@ -61,6 +65,7 @@ class Dashboard(pn.viewable.Viewer):
 
         pn.state.on_session_created(self.session_created)
         pn.state.on_session_destroyed(self.session_destroyed)
+        self.update_logfiles()
 
     def session_created(self, context: SessionContext) -> None:
         """Set up background tasks when a new session is created"""
@@ -78,28 +83,64 @@ class Dashboard(pn.viewable.Viewer):
         logfile = run_folder / "muscle3_manager.log"
         components = []  # TODO: get components from configuration.ymmsl
         self.manager_log_analyzer = ManagerLogAnalyzer(logfile, components)
+        self.stdout_log_analyzers = {}
+        self.stderr_log_analyzers = {}
+        for component in (run_folder / "instances").iterdir():
+            self.stdout_log_analyzers[component.name] = StdoutLogAnalyzer(
+                component / "stdout.txt"
+            )
+            self.stderr_log_analyzers[component.name] = StderrLogAnalyzer(
+                component / "stderr.txt"
+            )
 
         # TODO: create simulation graph from configuration.ymmsl
         ...
 
     def update_logfiles(self) -> None:
-        if self.manager_log_analyzer is not None:
-            self.manager_log_analyzer.update()
-            # Update manager log items
-            # TODO: fix 'Total' counter
-            self.log_messages_table_viewer.log_table.patch(
-                pd.DataFrame(
-                    self.manager_log_analyzer.messages_per_level,
-                    index=["muscle_manager"],
-                )
+        self.update_manager_logfiles()
+        self.update_stdout_logfiles()
+        self.update_stderr_logfiles()
+
+    def update_manager_logfiles(self) -> None:
+        if self.manager_log_analyzer is None:
+            return
+
+        self.manager_log_analyzer.update()
+        # Update manager log items
+        # TODO: fix 'Total' counter
+        self.log_messages_table_viewer.log_table.patch(
+            pd.DataFrame(
+                self.manager_log_analyzer.messages_per_level,
+                index=["muscle_manager"],
             )
-            # Update component status
-            self.status_table_viewer.component_status_table.value = pd.DataFrame(
-                {
-                    "status": self.manager_log_analyzer.var_dict("status"),
-                    "exitcode": self.manager_log_analyzer.var_dict("exit_code_message"),
-                }
-            )
+        )
+        # Update component status
+        self.status_table_viewer.component_status_table.value = pd.DataFrame(
+            {
+                "status": self.manager_log_analyzer.var_dict("status"),
+                "exitcode": self.manager_log_analyzer.var_dict("exit_code_message"),
+            }
+        )
+        # Update log text
+        self.log_files_viewer.update(
+            manager_log_lines=self.manager_log_analyzer.pop_new_lines()
+        )
+
+    def update_stdout_logfiles(self) -> None:
+        log_lines = {}
+        for component, analyzer in self.stdout_log_analyzers.items():
+            analyzer.update()
+            log_lines[component] = self.stdout_log_analyzers[component].pop_new_lines()
+
+        self.log_files_viewer.update(stdout_log_lines=log_lines)
+
+    def update_stderr_logfiles(self) -> None:
+        log_lines = {}
+        for component, analyzer in self.stderr_log_analyzers.items():
+            analyzer.update()
+            log_lines[component] = self.stderr_log_analyzers[component].pop_new_lines()
+
+        self.log_files_viewer.update(stderr_log_lines=log_lines)
 
     def __panel__(self):
         return self.template

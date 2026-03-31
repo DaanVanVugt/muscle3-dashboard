@@ -55,6 +55,9 @@ class ManagerLogAnalyzer(param.Parameterized):
     messages_per_level = param.Dict()
     """Number of parsed messages per log level"""
     components = param.Dict()
+    """Dictionary of components"""
+    new_lines = param.List()
+    """New lines to be added"""
 
     def __init__(self, logfile: Path, components: list[str]) -> None:
         super().__init__()
@@ -81,6 +84,7 @@ class ManagerLogAnalyzer(param.Parameterized):
 
     def update(self) -> None:
         # Parse currently available log lines
+        log_lines = []
         for line in self._file:
             self._lines_read += 1
             match = _LOGPARSER.match(line)
@@ -99,6 +103,7 @@ class ManagerLogAnalyzer(param.Parameterized):
             if loglevel not in self._messages_per_level:
                 loglevel = "unknown"
             self._messages_per_level[loglevel] += 1
+            log_lines.append(line)
 
         # Update externally visible state
         self.param.update(
@@ -106,6 +111,7 @@ class ManagerLogAnalyzer(param.Parameterized):
             lines_parsed=self._lines_parsed,
             messages_per_level=self._messages_per_level.copy(),
             components=self.components.copy(),
+            new_lines=self.new_lines + log_lines,
         )
 
     def _parse_manager_log_message(self, message: str) -> None:
@@ -158,6 +164,11 @@ class ManagerLogAnalyzer(param.Parameterized):
             if getattr(self.components[name], var)
         }
         return my_dict
+
+    def pop_new_lines(self):
+        popped_lines = self.new_lines.copy()
+        self.new_lines = []
+        return popped_lines
 
 
 class Component:
