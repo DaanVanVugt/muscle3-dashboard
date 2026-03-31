@@ -77,7 +77,6 @@ class ManagerLogAnalyzer(param.Parameterized):
 
     messages_per_level = param.Dict()
     """Number of parsed messages per log level"""
-    components = param.Dict()
 
     def __init__(self, logfile: Path, components: list[str]) -> None:
         super().__init__()
@@ -129,7 +128,6 @@ class ManagerLogAnalyzer(param.Parameterized):
             lines_read=self._lines_read,
             lines_parsed=self._lines_parsed,
             messages_per_level=self._messages_per_level.copy(),
-            components=self.components.copy(),
         )
 
     def _parse_manager_log_message(self, message: str) -> None:
