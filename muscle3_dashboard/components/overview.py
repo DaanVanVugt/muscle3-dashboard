@@ -6,6 +6,8 @@ from muscle3_dashboard.constants import CARD_MARGIN
 
 
 class OverviewViewer(pn.viewable.Viewer):
+    """Panel component to get a basic overview of the simulation"""
+
     def __init__(self) -> None:
         super().__init__()
         self.components = []
@@ -28,6 +30,7 @@ class OverviewViewer(pn.viewable.Viewer):
         )
 
     def update(self, logs_last_updated, status, components):
+        """Method to update the overview viewer from outside"""
         self.logs_last_updated = logs_last_updated
         self.status = status
         self.components = components
@@ -35,9 +38,11 @@ class OverviewViewer(pn.viewable.Viewer):
 
     @property
     def last_updated_str(self):
+        """Build string for last_updated based on inner state"""
         return self.logs_last_updated.strftime("%Y-%m-%d %H:%M:%S")
 
     def markdown_str(self):
+        """Build string for markdown based on inner state"""
         return f"""
             - **Simulation status**: {self.status}
             - **Last log update**: {self.last_updated_str}
