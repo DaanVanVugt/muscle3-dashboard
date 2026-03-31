@@ -1,5 +1,6 @@
-import panel as pn
 import datetime
+
+import panel as pn
 
 from muscle3_dashboard.constants import CARD_MARGIN
 
@@ -8,7 +9,7 @@ class OverviewViewer(pn.viewable.Viewer):
     def __init__(self) -> None:
         super().__init__()
         self.components = []
-        self.status = 'Running'
+        self.status = "Running"
         self.logs_last_updated = datetime.datetime.now()
         self.markdown = pn.pane.Markdown("""
             *PLACEHOLDER!*
@@ -34,9 +35,7 @@ class OverviewViewer(pn.viewable.Viewer):
 
     @property
     def last_updated_str(self):
-        return self.logs_last_updated.strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
+        return self.logs_last_updated.strftime("%Y-%m-%d %H:%M:%S")
 
     def markdown_str(self):
         return f"""

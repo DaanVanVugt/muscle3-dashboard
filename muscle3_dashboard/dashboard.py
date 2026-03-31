@@ -107,7 +107,6 @@ class Dashboard(pn.viewable.Viewer):
         self.update_manager_logfiles()
         self.update_stdout_logfiles()
         self.update_stderr_logfiles()
-        print(self.manager_log_analyzer.status)
         self.overview_viewer.update(
             logs_last_updated=self.logs_last_updated,
             status=self.manager_log_analyzer.status,
@@ -134,9 +133,7 @@ class Dashboard(pn.viewable.Viewer):
 
         # Update log text
         new_lines = self.manager_log_analyzer.pop_new_lines()
-        self.log_files_viewer.update(
-            manager_log_lines=new_lines
-        )
+        self.log_files_viewer.update(manager_log_lines=new_lines)
         if len(new_lines):
             self.logs_last_updated = datetime.datetime.now()
 

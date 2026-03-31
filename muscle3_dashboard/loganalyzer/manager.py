@@ -166,7 +166,6 @@ class ManagerLogAnalyzer(param.Parameterized):
                     self._comp(component).exit_code = exit_code
             else:
                 # The simulation finished
-                print(message)
                 self.status = message
 
     def _comp(self, name: str) -> Component:
