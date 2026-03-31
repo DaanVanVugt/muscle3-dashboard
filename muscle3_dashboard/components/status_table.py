@@ -5,6 +5,9 @@ from muscle3_dashboard.constants import CARD_MARGIN
 
 
 class StatusTableViewer(pn.viewable.Viewer):
+    """Panel component showing the status and exitcodes for every muscle3
+    component in the simulation."""
+
     def __init__(self) -> None:
         super().__init__()
         self.component_status_table = pn.widgets.Tabulator(

@@ -5,6 +5,9 @@ from muscle3_dashboard.constants import CARD_MARGIN
 
 
 class LogMessagesTableViewer(pn.viewable.Viewer):
+    """Panel component showing the number of log messages per log level for
+    different muscle3 components and the muscle_manager"""
+
     def __init__(self) -> None:
         super().__init__()
         logmessages = pd.DataFrame(
@@ -24,7 +27,6 @@ class LogMessagesTableViewer(pn.viewable.Viewer):
             frozen_rows=[-1],
             disabled=True,
             selectable=1,
-            # header_filters=True,
             sizing_mode="stretch_both",
             sorters=[
                 {"field": name, "dir": "desc"}
@@ -35,7 +37,6 @@ class LogMessagesTableViewer(pn.viewable.Viewer):
         self.card = pn.Card(
             self.log_table,
             title="All log messages",
-            # height=200,
             sizing_mode="stretch_both",
             collapsible=False,
             margin=CARD_MARGIN,
