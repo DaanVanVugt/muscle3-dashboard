@@ -22,6 +22,8 @@ pn.extension("tabulator")
 
 
 class Dashboard(pn.viewable.Viewer):
+    """Main dashboard for muscle3_dashboard app"""
+
     def __init__(self, run_folder: Path | None = None) -> None:
         self.run_folder: Path | None = run_folder
         self.manager_log_analyzer: ManagerLogAnalyzer | None = None
@@ -74,10 +76,12 @@ class Dashboard(pn.viewable.Viewer):
         pn.state.add_periodic_callback(self.update_logfiles, period=1000)
 
     def session_destroyed(self, context: SessionContext) -> None:
+        """Close session"""
         print("Session destroyed, shutting down")
         raise SystemExit(0)
 
     def update_run_folder(self, run_folder: Path) -> None:
+        """Set up log analyzers and simulation graph from run_folder"""
         self.run_folder = run_folder
         # TODO: setup notifications / poll until file exists?
         logfile = run_folder / "muscle3_manager.log"
@@ -97,11 +101,13 @@ class Dashboard(pn.viewable.Viewer):
         ...
 
     def update_logfiles(self) -> None:
+        """Update viewers whenever change in logfiles is detected"""
         self.update_manager_logfiles()
         self.update_stdout_logfiles()
         self.update_stderr_logfiles()
 
     def update_manager_logfiles(self) -> None:
+        """Update manager logfile information in viewers"""
         if self.manager_log_analyzer is None:
             return
 
@@ -115,18 +121,16 @@ class Dashboard(pn.viewable.Viewer):
             )
         )
         # Update component status
-        self.status_table_viewer.component_status_table.value = pd.DataFrame(
-            {
-                "status": self.manager_log_analyzer.var_dict("status"),
-                "exitcode": self.manager_log_analyzer.var_dict("exit_code_message"),
-            }
-        )
+        df = self.manager_log_analyzer.to_dataframe()
+        self.status_table_viewer.component_status_table.value = df
+
         # Update log text
         self.log_files_viewer.update(
             manager_log_lines=self.manager_log_analyzer.pop_new_lines()
         )
 
     def update_stdout_logfiles(self) -> None:
+        """Update stdout logfiles information in viewers"""
         log_lines = {}
         for component, analyzer in self.stdout_log_analyzers.items():
             analyzer.update()
@@ -135,6 +139,7 @@ class Dashboard(pn.viewable.Viewer):
         self.log_files_viewer.update(stdout_log_lines=log_lines)
 
     def update_stderr_logfiles(self) -> None:
+        """Update stderr logfiles information in viewers"""
         log_lines = {}
         for component, analyzer in self.stderr_log_analyzers.items():
             analyzer.update()
