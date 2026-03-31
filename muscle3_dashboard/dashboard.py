@@ -131,9 +131,17 @@ class Dashboard(pn.viewable.Viewer):
         df = self.manager_log_analyzer.to_dataframe()
         self.status_table_viewer.component_status_table.value = df
 
+        self.crash_analysis_viewer.update(
+            components_exit_code_dict={
+                component.name: component.exit_code_message
+                for component in self.manager_log_analyzer.components.values()
+            }
+        )
+
         # Update log text
         new_lines = self.manager_log_analyzer.pop_new_lines()
         self.log_files_viewer.update(manager_log_lines=new_lines)
+
         if len(new_lines):
             self.logs_last_updated = datetime.datetime.now()
 
