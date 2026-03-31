@@ -9,7 +9,6 @@ import pandas as pd
 import param
 from bokeh.core.serialization import Serializable, Serializer
 
-# ruff: disable[E501]
 _LOGPARSER = re.compile(
     r"""
     ^(?P<component>\S+)         # Source of log message: muscle_manager or remote component
@@ -17,10 +16,9 @@ _LOGPARSER = re.compile(
     \ (?P<loglevel>\S+)         # Log level: INFO / DEBUG / etc.
     \ +(?P<name>\S+):           # Python module for manager logs, or remote component name
     \s*(?P<message>.*)$         # Log message
-    """,
+    """,  # noqa: E501
     re.VERBOSE,
 )
-# ruff: enable[E501]
 
 
 class ComponentStatus(Serializable, Enum):
