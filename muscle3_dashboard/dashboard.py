@@ -1,3 +1,4 @@
+import datetime
 from importlib.metadata import version
 from pathlib import Path
 
@@ -29,6 +30,7 @@ class Dashboard(pn.viewable.Viewer):
         self.manager_log_analyzer: ManagerLogAnalyzer | None = None
         self.stdout_log_analyzers: dict[str, StdoutLogAnalyzer] | None = None
         self.stderr_log_analyzers: dict[str, StderrLogAnalyzer] | None = None
+        self.logs_last_updated = datetime.datetime.now()
 
         self.template = pn.template.VanillaTemplate(
             collapsed_sidebar=True,
@@ -105,6 +107,12 @@ class Dashboard(pn.viewable.Viewer):
         self.update_manager_logfiles()
         self.update_stdout_logfiles()
         self.update_stderr_logfiles()
+        print(self.manager_log_analyzer.status)
+        self.overview_viewer.update(
+            logs_last_updated=self.logs_last_updated,
+            status=self.manager_log_analyzer.status,
+            components=self.manager_log_analyzer.components.keys(),
+        )
 
     def update_manager_logfiles(self) -> None:
         """Update manager logfile information in viewers"""
@@ -125,16 +133,22 @@ class Dashboard(pn.viewable.Viewer):
         self.status_table_viewer.component_status_table.value = df
 
         # Update log text
+        new_lines = self.manager_log_analyzer.pop_new_lines()
         self.log_files_viewer.update(
-            manager_log_lines=self.manager_log_analyzer.pop_new_lines()
+            manager_log_lines=new_lines
         )
+        if len(new_lines):
+            self.logs_last_updated = datetime.datetime.now()
 
     def update_stdout_logfiles(self) -> None:
         """Update stdout logfiles information in viewers"""
         log_lines = {}
         for component, analyzer in self.stdout_log_analyzers.items():
             analyzer.update()
-            log_lines[component] = self.stdout_log_analyzers[component].pop_new_lines()
+            new_lines = self.stdout_log_analyzers[component].pop_new_lines()
+            log_lines[component] = new_lines
+            if len(new_lines):
+                self.logs_last_updated = datetime.datetime.now()
 
         self.log_files_viewer.update(stdout_log_lines=log_lines)
 
@@ -143,7 +157,10 @@ class Dashboard(pn.viewable.Viewer):
         log_lines = {}
         for component, analyzer in self.stderr_log_analyzers.items():
             analyzer.update()
-            log_lines[component] = self.stderr_log_analyzers[component].pop_new_lines()
+            new_lines = self.stderr_log_analyzers[component].pop_new_lines()
+            log_lines[component] = new_lines
+            if len(new_lines):
+                self.logs_last_updated = datetime.datetime.now()
 
         self.log_files_viewer.update(stderr_log_lines=log_lines)
 

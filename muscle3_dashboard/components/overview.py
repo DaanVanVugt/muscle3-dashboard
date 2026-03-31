@@ -1,4 +1,5 @@
 import panel as pn
+import datetime
 
 from muscle3_dashboard.constants import CARD_MARGIN
 
@@ -6,9 +7,10 @@ from muscle3_dashboard.constants import CARD_MARGIN
 class OverviewViewer(pn.viewable.Viewer):
     def __init__(self) -> None:
         super().__init__()
-        self.card = pn.Card(
-            pn.pane.Markdown(
-                """
+        self.components = []
+        self.status = 'Running'
+        self.logs_last_updated = datetime.datetime.now()
+        self.markdown = pn.pane.Markdown("""
             *PLACEHOLDER!*
 
             - **Simulation status**: Running (?)
@@ -16,12 +18,32 @@ class OverviewViewer(pn.viewable.Viewer):
             - **Components**
               - Found 20 components in the simulation
               - Found log files for 20 components in the run folder
-            """,
-            ),
+        """)
+        self.card = pn.Card(
+            self.markdown,
             title="Overview",
             sizing_mode="stretch_both",
             margin=CARD_MARGIN,
         )
+
+    def update(self, logs_last_updated, status, components):
+        self.logs_last_updated = logs_last_updated
+        self.status = status
+        self.components = components
+        self.markdown.object = self.markdown_str()
+
+    @property
+    def last_updated_str(self):
+        return self.logs_last_updated.strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+
+    def markdown_str(self):
+        return f"""
+            - **Simulation status**: {self.status}
+            - **Last log update**: {self.last_updated_str}
+            - **Components**: Found {len(self.components)} components in simulation
+        """
 
     def __panel__(self):
         return self.card
