@@ -9,7 +9,6 @@ import pandas as pd
 import param
 from bokeh.core.serialization import Serializable, Serializer
 
-# ruff: disable[E501]
 _LOGPARSER = re.compile(
     r"""
     ^(?P<component>\S+)         # Source of log message: muscle_manager or remote component
@@ -17,10 +16,9 @@ _LOGPARSER = re.compile(
     \ (?P<loglevel>\S+)         # Log level: INFO / DEBUG / etc.
     \ +(?P<name>\S+):           # Python module for manager logs, or remote component name
     \s*(?P<message>.*)$         # Log message
-    """,
+    """,  # noqa: E501
     re.VERBOSE,
 )
-# ruff: enable[E501]
 
 
 class ComponentStatus(Serializable, Enum):
@@ -77,8 +75,6 @@ class ManagerLogAnalyzer(param.Parameterized):
 
     messages_per_level = param.Dict()
     """Number of parsed messages per log level"""
-    components = param.Dict()
-    """Dictionary of components"""
     new_lines = param.List()
     """New lines to be added"""
 
@@ -134,7 +130,6 @@ class ManagerLogAnalyzer(param.Parameterized):
             lines_read=self._lines_read,
             lines_parsed=self._lines_parsed,
             messages_per_level=self._messages_per_level.copy(),
-            components=self.components.copy(),
             new_lines=self.new_lines + log_lines,
         )
 
@@ -175,6 +170,7 @@ class ManagerLogAnalyzer(param.Parameterized):
         return self.components[name]
 
     def pop_new_lines(self):
+        """Get new lines from log file and reset self.new_lines"""
         popped_lines = self.new_lines.copy()
         self.new_lines = []
         return popped_lines
