@@ -10,7 +10,7 @@ class LogFilesViewer(pn.viewable.Viewer):
         self.muscle_manager_tab = self.muscle_manager_tab_pane()
         self.component_tabs = self.components_tab_pane()
         self.tabs = pn.Tabs(
-            ("Aggregated logs", self.aggregated_tab),
+            # ("Aggregated logs", self.aggregated_tab), # TODO
             ("Muscle manager logs", self.muscle_manager_tab),
             ("Component logs", self.component_tabs),
             sizing_mode="stretch_width",
