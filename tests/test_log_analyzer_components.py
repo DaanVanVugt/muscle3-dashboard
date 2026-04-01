@@ -2,8 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from muscle3_dashboard.loganalyzer.stderr import StderrLogAnalyzer
-from muscle3_dashboard.loganalyzer.stdout import StdoutLogAnalyzer
+from muscle3_dashboard.loganalyzer.base import BaseLogAnalyzer
 
 
 @pytest.fixture
@@ -13,7 +12,7 @@ def assets_path():
 
 def test_run_stdout(assets_path):
     log_file = assets_path / "run-accumulator" / "instances" / "source" / "stdout.txt"
-    sla = StdoutLogAnalyzer(log_file)
+    sla = BaseLogAnalyzer(log_file)
     assert sla._name == "source"
     assert sla._path == log_file
     assert len(sla.new_lines) == 8
@@ -24,7 +23,7 @@ def test_run_stdout(assets_path):
 
 def test_run_stderr(assets_path):
     log_file = assets_path / "run-accumulator" / "instances" / "source" / "stderr.txt"
-    sla = StderrLogAnalyzer(log_file)
+    sla = BaseLogAnalyzer(log_file)
     assert sla._name == "source"
     assert sla._path == log_file
     assert len(sla.new_lines) == 5

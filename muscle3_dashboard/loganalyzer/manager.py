@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 import param
 from bokeh.core.serialization import Serializable, Serializer
+from muscle3_dashboard.loganalyzer.base import BaseLogAnalyzer
 
 _LOGPARSER = re.compile(
     r"""
@@ -56,7 +57,7 @@ class Component:
         return self.exit_code
 
 
-class ManagerLogAnalyzer(param.Parameterized):
+class ManagerLogAnalyzer(BaseLogAnalyzer):
     """Log analyzer for muscle_manager log file"""
 
     muscle_manager_version = param.String(default="unknown")
@@ -79,15 +80,12 @@ class ManagerLogAnalyzer(param.Parameterized):
     """New lines to be added"""
 
     def __init__(self, logfile: Path, components: list[str]) -> None:
-        super().__init__()
-        self._path: Path = logfile
         self.components: dict[str, Component] = {
             component: Component(
                 component, status=ComponentStatus.NOT_STARTED, exit_code=""
             )
             for component in components
         }
-        self._file = logfile.open("r")
         self._messages_per_level: dict[str, int] = {
             "DEBUG": 0,
             "INFO": 0,
@@ -98,8 +96,7 @@ class ManagerLogAnalyzer(param.Parameterized):
         }
         self._lines_read = 0
         self._lines_parsed = 0
-
-        self.update()
+        super().__init__(logfile)
 
     def update(self) -> None:
         """Parse new lines of log file and update parsed information"""
@@ -168,12 +165,6 @@ class ManagerLogAnalyzer(param.Parameterized):
         if name not in self.components:
             self.components[name] = Component(name)
         return self.components[name]
-
-    def pop_new_lines(self):
-        """Get new lines from log file and reset self.new_lines"""
-        popped_lines = self.new_lines.copy()
-        self.new_lines = []
-        return popped_lines
 
     def to_dataframe(self) -> pd.DataFrame:
         """Create dataframe for status table viewer"""

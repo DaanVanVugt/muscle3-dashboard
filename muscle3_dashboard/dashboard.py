@@ -15,8 +15,7 @@ from muscle3_dashboard.components.profiling_information import (
 from muscle3_dashboard.components.status_table import StatusTableViewer
 from muscle3_dashboard.components.ymmsl_graph import YmmslGraphViewer
 from muscle3_dashboard.loganalyzer.manager import ManagerLogAnalyzer
-from muscle3_dashboard.loganalyzer.stderr import StderrLogAnalyzer
-from muscle3_dashboard.loganalyzer.stdout import StdoutLogAnalyzer
+from muscle3_dashboard.loganalyzer.base import BaseLogAnalyzer
 
 pn.extension("tabulator")
 
@@ -27,16 +26,12 @@ class Dashboard(pn.viewable.Viewer):
     def __init__(self, run_folder: Path | None = None) -> None:
         self.run_folder: Path | None = run_folder
         self.manager_log_analyzer: ManagerLogAnalyzer | None = None
-        self.stdout_log_analyzers: dict[str, StdoutLogAnalyzer] | None = None
-        self.stderr_log_analyzers: dict[str, StderrLogAnalyzer] | None = None
+        self.stdout_log_analyzers: dict[str, BaseLogAnalyzer] | None = None
+        self.stderr_log_analyzers: dict[str, BaseLogAnalyzer] | None = None
 
         self.template = pn.template.VanillaTemplate(
             collapsed_sidebar=True,
             title=f"MUSCLE3 Dashboard | {version('muscle3-dashboard')}",
-            # header=pn.widgets.Button(
-            #     name=f"Selected run folder: {run_folder} (click to change)",
-            #     button_style="outline",
-            # ),
         )
 
         self.overview_viewer = OverviewViewer()
@@ -90,10 +85,10 @@ class Dashboard(pn.viewable.Viewer):
         self.stdout_log_analyzers = {}
         self.stderr_log_analyzers = {}
         for component in (run_folder / "instances").iterdir():
-            self.stdout_log_analyzers[component.name] = StdoutLogAnalyzer(
+            self.stdout_log_analyzers[component.name] = BaseLogAnalyzer(
                 component / "stdout.txt"
             )
-            self.stderr_log_analyzers[component.name] = StderrLogAnalyzer(
+            self.stderr_log_analyzers[component.name] = BaseLogAnalyzer(
                 component / "stderr.txt"
             )
 
@@ -113,7 +108,6 @@ class Dashboard(pn.viewable.Viewer):
 
         self.manager_log_analyzer.update()
         # Update manager log items
-        # TODO: fix 'Total' counter
         self.log_messages_table_viewer.log_table.patch(
             pd.DataFrame(
                 self.manager_log_analyzer.messages_per_level,

@@ -3,7 +3,7 @@ from pathlib import Path
 import param
 
 
-class StdoutLogAnalyzer(param.Parameterized):
+class BaseLogAnalyzer(param.Parameterized):
     new_lines = param.List()
     """New lines to be added"""
 
@@ -25,6 +25,5 @@ class StdoutLogAnalyzer(param.Parameterized):
 
     def pop_new_lines(self):
         """Get new lines from log file and reset self.new_lines"""
-        popped_lines = self.new_lines.copy()
-        self.new_lines = []
+        popped_lines, self.new_lines = self.new_lines, []
         return popped_lines

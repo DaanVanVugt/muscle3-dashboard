@@ -1,4 +1,5 @@
 from collections import defaultdict
+from typing import List, Dict
 
 import panel as pn
 
@@ -6,16 +7,15 @@ from muscle3_dashboard.constants import CARD_MARGIN
 
 
 class LogFilesViewer(pn.viewable.Viewer):
-    """Panel component showing the log files for the muscle manager and the\
+    """Panel component showing the log files for the muscle manager and the
     separate components"""
 
     def __init__(self) -> None:
         super().__init__()
-        self.aggregated_tab = self.aggregated_tab_pane()
-        self.muscle_manager_tab = self.muscle_manager_tab_pane()
+        # TODO: add aggregated logs tab
+        self.muscle_manager_tab = self.log_pane()
         self.component_tabs = self.components_tab_pane()
         self.tabs = pn.Tabs(
-            # ("Aggregated logs", self.aggregated_tab), # TODO
             ("Muscle manager logs", self.muscle_manager_tab),
             ("Component logs", self.component_tabs),
             sizing_mode="stretch_width",
@@ -25,19 +25,11 @@ class LogFilesViewer(pn.viewable.Viewer):
         )
         self.card = pn.Card(self.tabs, margin=CARD_MARGIN, title="Log files")
 
-    def aggregated_tab_pane(self):
-        """Tab for aggregated logs"""
-        return self.log_pane()
-
-    def muscle_manager_tab_pane(self):
-        """Tab for muscle manager log"""
-        return self.log_pane()
-
     def components_tab_pane(self):
         """Tab for separate component logs"""
         self.component_terminals = {}
         self.select = pn.widgets.Select(name="Choose log", groups={})
-        self.terminal_container = pn.Column()
+        self.terminal_container = pn.pane.Placeholder('')
         self.select.param.watch(self.update_component_logs, "value")
         return pn.Column(self.select, self.terminal_container)
 
@@ -45,8 +37,7 @@ class LogFilesViewer(pn.viewable.Viewer):
         """Update component logs on trigger"""
         if event.new not in self.component_terminals:
             self.component_terminals[event.new] = self.log_pane()
-        self.terminal_container.clear()
-        self.terminal_container.append(self.component_terminals[event.new])
+        self.terminal_container.object = self.component_terminals[event.new]
 
     def log_pane(self):
         """Get basic terminal"""
@@ -58,9 +49,9 @@ class LogFilesViewer(pn.viewable.Viewer):
 
     def update(
         self,
-        manager_log_lines=None,
-        stdout_log_lines=None,
-        stderr_log_lines=None,
+        manager_log_lines: List[str] = None,
+        stdout_log_lines: Dict[str, List[str]] = None,
+        stderr_log_lines: Dict[str, List[str]] = None,
     ):
         """Method to update log file viewer state from outside"""
         if manager_log_lines is not None:

@@ -23,7 +23,7 @@ class LogMessagesTableViewer(pn.viewable.Viewer):
         ).set_index("component")
 
         self.log_table = pn.widgets.Tabulator(
-            pd.concat([logmessages, logmessages.sum().to_frame("Total").T]),
+            pd.concat([logmessages]),
             frozen_rows=[-1],
             disabled=True,
             selectable=1,
