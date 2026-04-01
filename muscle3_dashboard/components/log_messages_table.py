@@ -2,13 +2,14 @@ import pandas as pd
 import panel as pn
 
 from muscle3_dashboard.constants import CARD_MARGIN
+from muscle3_dashboard.data_manager import DataManager
 
 
 class LogMessagesTableViewer(pn.viewable.Viewer):
     """Panel component showing the number of log messages per log level for
     different muscle3 components and the muscle_manager"""
 
-    def __init__(self) -> None:
+    def __init__(self, data_manager: DataManager) -> None:
         super().__init__()
         logmessages = pd.DataFrame(
             {
@@ -40,6 +41,17 @@ class LogMessagesTableViewer(pn.viewable.Viewer):
             sizing_mode="stretch_both",
             collapsible=False,
             margin=CARD_MARGIN,
+        )
+        self.data_manager = data_manager
+        self.data_manager.param.watch(self.update, "event_called")
+
+    def update(self, event):
+        """Method to update log messages table viewer from listener"""
+        self.log_table.patch(
+            pd.DataFrame(
+                self.data_manager.manager_log_analyzer.messages_per_level,
+                index=["muscle_manager"],
+            )
         )
 
     def __panel__(self):

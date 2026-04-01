@@ -1,6 +1,7 @@
 import panel as pn
 
 from muscle3_dashboard.constants import CARD_MARGIN
+from muscle3_dashboard.data_manager import DataManager
 
 
 class PlacholderGraph:
@@ -43,7 +44,7 @@ y="25.0">macro</text></g><g/></g></svg>"""
 
 
 class YmmslGraphViewer(pn.viewable.Viewer):
-    def __init__(self) -> None:
+    def __init__(self, data_manager: DataManager) -> None:
         super().__init__()
         self.svg = pn.pane.SVG(PlacholderGraph(), align="center")
         self.card = pn.Card(
@@ -52,6 +53,11 @@ class YmmslGraphViewer(pn.viewable.Viewer):
             sizing_mode="stretch_width",
             margin=CARD_MARGIN,
         )
+        self.data_manager = data_manager
+        self.data_manager.param.watch(self.update, "event_called")
+
+    def update(self, event):
+        pass
 
     def __panel__(self):
         return self.card

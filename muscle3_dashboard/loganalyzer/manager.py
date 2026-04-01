@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 import param
 from bokeh.core.serialization import Serializable, Serializer
+
 from muscle3_dashboard.loganalyzer.base import BaseLogAnalyzer
 
 _LOGPARSER = re.compile(

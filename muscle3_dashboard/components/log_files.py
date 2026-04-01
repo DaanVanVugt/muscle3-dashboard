@@ -1,16 +1,16 @@
 from collections import defaultdict
-from typing import List, Dict
 
 import panel as pn
 
-from muscle3_dashboard.constants import CARD_MARGIN
+from muscle3_dashboard.constants import CARD_MARGIN, MAX_LINES
+from muscle3_dashboard.data_manager import DataManager
 
 
 class LogFilesViewer(pn.viewable.Viewer):
     """Panel component showing the log files for the muscle manager and the
     separate components"""
 
-    def __init__(self) -> None:
+    def __init__(self, data_manager: DataManager) -> None:
         super().__init__()
         # TODO: add aggregated logs tab
         self.muscle_manager_tab = self.log_pane()
@@ -24,12 +24,17 @@ class LogFilesViewer(pn.viewable.Viewer):
             stylesheets=[".bk-tab {text-align: right;}"],
         )
         self.card = pn.Card(self.tabs, margin=CARD_MARGIN, title="Log files")
+        self.data_manager = data_manager
+        self.data_manager.param.watch(self.update, "event_called")
 
     def components_tab_pane(self):
         """Tab for separate component logs"""
         self.component_terminals = {}
         self.select = pn.widgets.Select(name="Choose log", groups={})
-        self.terminal_container = pn.pane.Placeholder('')
+        self.terminal_container = pn.pane.Placeholder(
+            "",
+            sizing_mode="stretch_both",
+        )
         self.select.param.watch(self.update_component_logs, "value")
         return pn.Column(self.select, self.terminal_container)
 
@@ -47,32 +52,24 @@ class LogFilesViewer(pn.viewable.Viewer):
             options={"wrap": False},
         )
 
-    def update(
-        self,
-        manager_log_lines: List[str] = None,
-        stdout_log_lines: Dict[str, List[str]] = None,
-        stderr_log_lines: Dict[str, List[str]] = None,
-    ):
-        """Method to update log file viewer state from outside"""
-        if manager_log_lines is not None:
-            for line in manager_log_lines:
-                self.muscle_manager_tab.write(line)
+    def update(self, event):
+        """Method to update log file viewer from listener"""
+        for line in self.data_manager.manager_log_lines[-MAX_LINES:]:
+            self.muscle_manager_tab.write(line)
 
-        if stdout_log_lines is not None:
-            for component, lines in stdout_log_lines.items():
-                key = f"{component} - stdout"
-                if key not in self.component_terminals:
-                    self.component_terminals[key] = self.log_pane()
-                for line in lines:
-                    self.component_terminals[key].write(line)
+        for component, lines in self.data_manager.stdout_log_lines.items():
+            key = f"{component} - stdout"
+            if key not in self.component_terminals:
+                self.component_terminals[key] = self.log_pane()
+            for line in lines[-MAX_LINES:]:
+                self.component_terminals[key].write(line)
 
-        if stderr_log_lines is not None:
-            for component, lines in stderr_log_lines.items():
-                key = f"{component} - stderr"
-                if key not in self.component_terminals:
-                    self.component_terminals[key] = self.log_pane()
-                for line in lines:
-                    self.component_terminals[key].write(line)
+        for component, lines in self.data_manager.stderr_log_lines.items():
+            key = f"{component} - stderr"
+            if key not in self.component_terminals:
+                self.component_terminals[key] = self.log_pane()
+            for line in lines[-MAX_LINES:]:
+                self.component_terminals[key].write(line)
 
         groups = defaultdict(list)
         for key in self.component_terminals:
