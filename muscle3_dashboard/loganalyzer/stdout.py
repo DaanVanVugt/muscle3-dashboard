@@ -15,6 +15,7 @@ class StdoutLogAnalyzer(param.Parameterized):
         self.update()
 
     def update(self) -> None:
+        """Parse new lines of log file and update parsed information"""
         # Update externally visible state
         log_lines = []
         for line in self._file:
@@ -23,6 +24,7 @@ class StdoutLogAnalyzer(param.Parameterized):
         self.param.update(new_lines=self.new_lines + log_lines)
 
     def pop_new_lines(self):
+        """Get new lines from log file and reset self.new_lines"""
         popped_lines = self.new_lines.copy()
         self.new_lines = []
         return popped_lines

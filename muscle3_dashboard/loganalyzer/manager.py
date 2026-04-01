@@ -106,6 +106,7 @@ class ManagerLogAnalyzer(param.Parameterized):
         # Parse currently available log lines
         log_lines = []
         for line in self._file:
+            log_lines.append(line)
             self._lines_read += 1
             match = _LOGPARSER.match(line)
             if match is None:
@@ -123,7 +124,6 @@ class ManagerLogAnalyzer(param.Parameterized):
             if loglevel not in self._messages_per_level:
                 loglevel = "unknown"
             self._messages_per_level[loglevel] += 1
-            log_lines.append(line)
 
         # Update externally visible state
         self.param.update(
