@@ -14,7 +14,7 @@ class ProfilingInformationViewer(pn.viewable.Viewer):
             sizing_mode="stretch_width",
         )
         self.data_manager = data_manager
-        self.data_manager.param.watch(self.update, "event_called")
+        self.data_manager.param.watch(self.update, "data_updated")
 
     def update(self, event):
         pass

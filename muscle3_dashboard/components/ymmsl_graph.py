@@ -54,7 +54,10 @@ class YmmslGraphViewer(pn.viewable.Viewer):
             margin=CARD_MARGIN,
         )
         self.data_manager = data_manager
-        self.data_manager.param.watch(self.update, "event_called")
+        self.data_manager.param.watch(self.update, "data_updated")
+
+        # TODO: create simulation graph from configuration.ymmsl
+        ...
 
     def update(self, event):
         pass

@@ -25,7 +25,7 @@ class LogFilesViewer(pn.viewable.Viewer):
         )
         self.card = pn.Card(self.tabs, margin=CARD_MARGIN, title="Log files")
         self.data_manager = data_manager
-        self.data_manager.param.watch(self.update, "event_called")
+        self.data_manager.param.watch(self.update, "data_updated")
 
     def components_tab_pane(self):
         """Tab for separate component logs"""

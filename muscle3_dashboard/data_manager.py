@@ -8,16 +8,14 @@ from muscle3_dashboard.loganalyzer.manager import ManagerLogAnalyzer
 
 class DataManager(param.Parameterized):
     manager_log_lines: list[str] = (None,)
-    stdout_log_lines: dict[str, list[str]] = (None,)
-    stderr_log_lines: dict[str, list[str]] = (None,)
-    event_called = param.Event()
+    data_updated = param.Event()
 
     def __init__(self, run_folder: Path):
         super().__init__()
         self.run_folder = run_folder
         self.manager_log_analyzer: ManagerLogAnalyzer | None = None
-        self.stdout_log_analyzers: dict[str, BaseLogAnalyzer] | None = None
-        self.stderr_log_analyzers: dict[str, BaseLogAnalyzer] | None = None
+        self.stdout_log_analyzers: dict[str, BaseLogAnalyzer] = {}
+        self.stderr_log_analyzers: dict[str, BaseLogAnalyzer] = {}
         self.update_run_folder(run_folder)
 
     def update_run_folder(self, run_folder: Path) -> None:
@@ -45,7 +43,7 @@ class DataManager(param.Parameterized):
         self.update_manager_logfiles()
         self.update_stdout_logfiles()
         self.update_stderr_logfiles()
-        self.event_called = True
+        self.data_updated = True
 
     def update_manager_logfiles(self) -> None:
         """Update manager logfile information in viewers"""

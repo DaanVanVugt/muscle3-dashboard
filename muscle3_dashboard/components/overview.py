@@ -24,7 +24,7 @@ class OverviewViewer(pn.viewable.Viewer):
             margin=CARD_MARGIN,
         )
         self.data_manager = data_manager
-        self.data_manager.param.watch(self.update, "event_called")
+        self.data_manager.param.watch(self.update, "data_updated")
 
     def update(self, event):
         pass

@@ -24,7 +24,7 @@ class LogMessagesTableViewer(pn.viewable.Viewer):
         ).set_index("component")
 
         self.log_table = pn.widgets.Tabulator(
-            pd.concat([logmessages]),
+            logmessages,
             frozen_rows=[-1],
             disabled=True,
             selectable=1,
@@ -43,7 +43,7 @@ class LogMessagesTableViewer(pn.viewable.Viewer):
             margin=CARD_MARGIN,
         )
         self.data_manager = data_manager
-        self.data_manager.param.watch(self.update, "event_called")
+        self.data_manager.param.watch(self.update, "data_updated")
 
     def update(self, event):
         """Method to update log messages table viewer from listener"""

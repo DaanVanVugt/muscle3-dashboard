@@ -29,7 +29,7 @@ class StatusTableViewer(pn.viewable.Viewer):
             width_policy="min",
         )
         self.data_manager = data_manager
-        self.data_manager.param.watch(self.update, "event_called")
+        self.data_manager.param.watch(self.update, "data_updated")
 
     def update(self, event):
         df = self.data_manager.manager_log_analyzer.to_dataframe()
