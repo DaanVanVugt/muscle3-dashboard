@@ -39,6 +39,10 @@ def test_successful_run(assets_path):
     }
     assert mla.muscle_manager_version == "unknown"
     assert mla.status == "The simulation finished without error."
+    assert len(mla.new_lines) == 30
+    new_lines = mla.pop_new_lines()
+    assert len(new_lines) == 30
+    assert len(mla.new_lines) == 0
 
 
 def test_unsuccessful_run(assets_path):
@@ -69,3 +73,4 @@ def test_unsuccessful_run(assets_path):
     }
     assert mla.muscle_manager_version == "unknown"
     assert mla.status == ""
+    assert len(mla.new_lines) == 31

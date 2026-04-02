@@ -1,13 +1,14 @@
 import panel as pn
 
 from muscle3_dashboard.constants import CARD_MARGIN
+from muscle3_dashboard.data_manager import DataManager
 
 
 class CrashAnalysisViewer(pn.viewable.Viewer):
     """Panel component showing the most likely components responsible for a
     simulation crash"""
 
-    def __init__(self) -> None:
+    def __init__(self, data_manager: DataManager) -> None:
         super().__init__()
         self.components_exit_code_dict = {}
         self.markdown = pn.pane.Markdown(self.markdown_str)
@@ -17,10 +18,15 @@ class CrashAnalysisViewer(pn.viewable.Viewer):
             margin=CARD_MARGIN,
             sizing_mode="stretch_width",
         )
+        self.data_manager = data_manager
+        self.data_manager.param.watch(self.update, "data_updated")
 
-    def update(self, components_exit_code_dict):
-        """Method to update thi crash analysis viewer from outside"""
-        self.components_exit_code_dict = components_exit_code_dict
+    def update(self, event):
+        """Method to update crash analysis viewer from listener"""
+        self.components_exit_code_dict = {
+            component.name: component.exit_code_message
+            for component in self.data_manager.manager_log_analyzer.components.values()
+        }
         self.markdown.object = self.markdown_str
 
     @property

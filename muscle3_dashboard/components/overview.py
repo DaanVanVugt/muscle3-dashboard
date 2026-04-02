@@ -3,41 +3,41 @@ import datetime
 import panel as pn
 
 from muscle3_dashboard.constants import CARD_MARGIN
+from muscle3_dashboard.data_manager import DataManager
 
 
 class OverviewViewer(pn.viewable.Viewer):
-    def __init__(self) -> None:
+    """Panel component to get a basic overview of the simulation"""
+
+    def __init__(self, data_manager: DataManager) -> None:
         super().__init__()
         self.components = []
         self.status = "Running"
         self.logs_last_updated = datetime.datetime.now()
-        self.markdown = pn.pane.Markdown("""
-            *PLACEHOLDER!*
-
-            - **Simulation status**: Running (?)
-            - **Last log update**: 2026-03-25 10:41:32 (1 second ago)
-            - **Components**
-              - Found 20 components in the simulation
-              - Found log files for 20 components in the run folder
-        """)
+        self.markdown = pn.pane.Markdown("")
         self.card = pn.Card(
             self.markdown,
             title="Overview",
             sizing_mode="stretch_both",
             margin=CARD_MARGIN,
         )
+        self.data_manager = data_manager
+        self.data_manager.param.watch(self.update, "data_updated")
 
-    def update(self, logs_last_updated, status, components):
-        self.logs_last_updated = logs_last_updated
-        self.status = status
-        self.components = components
+    def update(self, event):
+        """Method to update overview viewer from listener"""
+        self.logs_last_updated = self.data_manager.logs_last_updated
+        self.status = self.data_manager.manager_log_analyzer.status
+        self.components = self.data_manager.manager_log_analyzer.components.keys()
         self.markdown.object = self.markdown_str()
 
     @property
     def last_updated_str(self):
+        """Build string for last_updated based on inner state"""
         return self.logs_last_updated.strftime("%Y-%m-%d %H:%M:%S")
 
     def markdown_str(self):
+        """Build string for markdown based on inner state"""
         return f"""
             - **Simulation status**: {self.status}
             - **Last log update**: {self.last_updated_str}

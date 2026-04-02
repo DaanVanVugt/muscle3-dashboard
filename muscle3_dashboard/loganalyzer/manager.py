@@ -9,7 +9,8 @@ import pandas as pd
 import param
 from bokeh.core.serialization import Serializable, Serializer
 
-# ruff: disable[E501]
+from muscle3_dashboard.loganalyzer.base import BaseLogAnalyzer
+
 _LOGPARSER = re.compile(
     r"""
     ^(?P<component>\S+)         # Source of log message: muscle_manager or remote component
@@ -17,10 +18,9 @@ _LOGPARSER = re.compile(
     \ (?P<loglevel>\S+)         # Log level: INFO / DEBUG / etc.
     \ +(?P<name>\S+):           # Python module for manager logs, or remote component name
     \s*(?P<message>.*)$         # Log message
-    """,
+    """,  # noqa: E501
     re.VERBOSE,
 )
-# ruff: enable[E501]
 
 
 class ComponentStatus(Serializable, Enum):
@@ -58,7 +58,7 @@ class Component:
         return self.exit_code
 
 
-class ManagerLogAnalyzer(param.Parameterized):
+class ManagerLogAnalyzer(BaseLogAnalyzer):
     """Log analyzer for muscle_manager log file"""
 
     muscle_manager_version = param.String(default="unknown")
@@ -77,21 +77,16 @@ class ManagerLogAnalyzer(param.Parameterized):
 
     messages_per_level = param.Dict()
     """Number of parsed messages per log level"""
-    components = param.Dict()
-    """Dictionary of components"""
     new_lines = param.List()
     """New lines to be added"""
 
     def __init__(self, logfile: Path, components: list[str]) -> None:
-        super().__init__()
-        self._path: Path = logfile
         self.components: dict[str, Component] = {
             component: Component(
                 component, status=ComponentStatus.NOT_STARTED, exit_code=""
             )
             for component in components
         }
-        self._file = logfile.open("r")
         self._messages_per_level: dict[str, int] = {
             "DEBUG": 0,
             "INFO": 0,
@@ -102,14 +97,14 @@ class ManagerLogAnalyzer(param.Parameterized):
         }
         self._lines_read = 0
         self._lines_parsed = 0
-
-        self.update()
+        super().__init__(logfile)
 
     def update(self) -> None:
         """Parse new lines of log file and update parsed information"""
         # Parse currently available log lines
         log_lines = []
         for line in self._file:
+            log_lines.append(line)
             self._lines_read += 1
             match = _LOGPARSER.match(line)
             if match is None:
@@ -127,14 +122,12 @@ class ManagerLogAnalyzer(param.Parameterized):
             if loglevel not in self._messages_per_level:
                 loglevel = "unknown"
             self._messages_per_level[loglevel] += 1
-            log_lines.append(line)
 
         # Update externally visible state
         self.param.update(
             lines_read=self._lines_read,
             lines_parsed=self._lines_parsed,
             messages_per_level=self._messages_per_level.copy(),
-            components=self.components.copy(),
             new_lines=self.new_lines + log_lines,
         )
 
@@ -173,11 +166,6 @@ class ManagerLogAnalyzer(param.Parameterized):
         if name not in self.components:
             self.components[name] = Component(name)
         return self.components[name]
-
-    def pop_new_lines(self):
-        popped_lines = self.new_lines.copy()
-        self.new_lines = []
-        return popped_lines
 
     def to_dataframe(self) -> pd.DataFrame:
         """Create dataframe for status table viewer"""
