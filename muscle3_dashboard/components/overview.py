@@ -3,12 +3,13 @@ import datetime
 import panel as pn
 
 from muscle3_dashboard.constants import CARD_MARGIN
+from muscle3_dashboard.data_manager import DataManager
 
 
 class OverviewViewer(pn.viewable.Viewer):
     """Panel component to get a basic overview of the simulation"""
 
-    def __init__(self) -> None:
+    def __init__(self, data_manager: DataManager) -> None:
         super().__init__()
         self.components = []
         self.status = "Running"
@@ -28,12 +29,14 @@ class OverviewViewer(pn.viewable.Viewer):
             sizing_mode="stretch_both",
             margin=CARD_MARGIN,
         )
+        self.data_manager = data_manager
+        self.data_manager.param.watch(self.update, "data_updated")
 
-    def update(self, logs_last_updated, status, components):
-        """Method to update the overview viewer from outside"""
-        self.logs_last_updated = logs_last_updated
-        self.status = status
-        self.components = components
+    def update(self, event):
+        """Method to update overview viewer from listener"""
+        self.logs_last_updated = self.data_manager.logs_last_updated
+        self.status = self.data_manager.manager_log_analyzer.status
+        self.components = self.data_manager.manager_log_analyzer.components.keys()
         self.markdown.object = self.markdown_str()
 
     @property
