@@ -1,10 +1,11 @@
 import panel as pn
 
 from muscle3_dashboard.constants import CARD_MARGIN
+from muscle3_dashboard.data_manager import DataManager
 
 
 class OverviewViewer(pn.viewable.Viewer):
-    def __init__(self) -> None:
+    def __init__(self, data_manager: DataManager) -> None:
         super().__init__()
         self.card = pn.Card(
             pn.pane.Markdown(
@@ -22,6 +23,11 @@ class OverviewViewer(pn.viewable.Viewer):
             sizing_mode="stretch_both",
             margin=CARD_MARGIN,
         )
+        self.data_manager = data_manager
+        self.data_manager.param.watch(self.update, "data_updated")
+
+    def update(self, event):
+        pass
 
     def __panel__(self):
         return self.card

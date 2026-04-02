@@ -9,6 +9,8 @@ import pandas as pd
 import param
 from bokeh.core.serialization import Serializable, Serializer
 
+from muscle3_dashboard.loganalyzer.base import BaseLogAnalyzer
+
 _LOGPARSER = re.compile(
     r"""
     ^(?P<component>\S+)         # Source of log message: muscle_manager or remote component
@@ -56,7 +58,7 @@ class Component:
         return self.exit_code
 
 
-class ManagerLogAnalyzer(param.Parameterized):
+class ManagerLogAnalyzer(BaseLogAnalyzer):
     """Log analyzer for muscle_manager log file"""
 
     muscle_manager_version = param.String(default="unknown")
@@ -75,17 +77,16 @@ class ManagerLogAnalyzer(param.Parameterized):
 
     messages_per_level = param.Dict()
     """Number of parsed messages per log level"""
+    new_lines = param.List()
+    """New lines to be added"""
 
     def __init__(self, logfile: Path, components: list[str]) -> None:
-        super().__init__()
-        self._path: Path = logfile
         self.components: dict[str, Component] = {
             component: Component(
                 component, status=ComponentStatus.NOT_STARTED, exit_code=""
             )
             for component in components
         }
-        self._file = logfile.open("r")
         self._messages_per_level: dict[str, int] = {
             "DEBUG": 0,
             "INFO": 0,
@@ -96,13 +97,14 @@ class ManagerLogAnalyzer(param.Parameterized):
         }
         self._lines_read = 0
         self._lines_parsed = 0
-
-        self.update()
+        super().__init__(logfile)
 
     def update(self) -> None:
         """Parse new lines of log file and update parsed information"""
         # Parse currently available log lines
+        log_lines = []
         for line in self._file:
+            log_lines.append(line)
             self._lines_read += 1
             match = _LOGPARSER.match(line)
             if match is None:
@@ -126,6 +128,7 @@ class ManagerLogAnalyzer(param.Parameterized):
             lines_read=self._lines_read,
             lines_parsed=self._lines_parsed,
             messages_per_level=self._messages_per_level.copy(),
+            new_lines=self.new_lines + log_lines,
         )
 
     def _parse_manager_log_message(self, message: str) -> None:
