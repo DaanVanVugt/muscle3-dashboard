@@ -14,15 +14,7 @@ class OverviewViewer(pn.viewable.Viewer):
         self.components = []
         self.status = "Running"
         self.logs_last_updated = datetime.datetime.now()
-        self.markdown = pn.pane.Markdown("""
-            *PLACEHOLDER!*
-
-            - **Simulation status**: Running (?)
-            - **Last log update**: 2026-03-25 10:41:32 (1 second ago)
-            - **Components**
-              - Found 20 components in the simulation
-              - Found log files for 20 components in the run folder
-        """)
+        self.markdown = pn.pane.Markdown("")
         self.card = pn.Card(
             self.markdown,
             title="Overview",
