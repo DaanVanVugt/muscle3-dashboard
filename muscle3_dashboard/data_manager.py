@@ -7,7 +7,6 @@ from muscle3_dashboard.loganalyzer.manager import ManagerLogAnalyzer
 
 
 class DataManager(param.Parameterized):
-    manager_log_lines: list[str] = (None,)
     data_updated = param.Event()
 
     def __init__(self, run_folder: Path):
@@ -34,9 +33,9 @@ class DataManager(param.Parameterized):
             self.stderr_log_analyzers[component.name] = BaseLogAnalyzer(
                 component / "stderr.txt"
             )
-
-        # TODO: create simulation graph from configuration.ymmsl
-        ...
+        self.manager_log_lines: list[str] = []
+        self.stdout_log_lines: dict[str, list[str]] = {}
+        self.stderr_log_lines: dict[str, list[str]] = {}
 
     def update(self) -> None:
         """Update viewers whenever change in logfiles is detected"""
