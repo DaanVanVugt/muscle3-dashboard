@@ -12,6 +12,7 @@ class DataManager(param.Parameterized):
     def __init__(self, run_folder: Path):
         super().__init__()
         self.run_folder = run_folder
+        self.logs_last_updated = None
         self.manager_log_analyzer: ManagerLogAnalyzer | None = None
         self.stdout_log_analyzers: dict[str, BaseLogAnalyzer] = {}
         self.stderr_log_analyzers: dict[str, BaseLogAnalyzer] = {}
@@ -44,10 +45,17 @@ class DataManager(param.Parameterized):
         self.update_stderr_logfiles()
         self.data_updated = True
 
+    def update_logs_last_updated(self, log_analyzer: BaseLogAnalyzer) -> None:
+        """Update logs_last_updated based on last time given file was
+        modified"""
+        file_time = log_analyzer.file_last_updated()
+        self.logs_last_updated = max(self.logs_last_updated or file_time, file_time)
+
     def update_manager_logfiles(self) -> None:
         """Update manager logfile information in viewers"""
         self.manager_log_analyzer.update()
         self.manager_log_lines = self.manager_log_analyzer.pop_new_lines()
+        self.update_logs_last_updated(self.manager_log_analyzer)
 
     def update_stdout_logfiles(self) -> None:
         """Update stdout logfiles information in viewers"""
@@ -55,6 +63,7 @@ class DataManager(param.Parameterized):
         for component, analyzer in self.stdout_log_analyzers.items():
             analyzer.update()
             log_lines[component] = self.stdout_log_analyzers[component].pop_new_lines()
+            self.update_logs_last_updated(self.stdout_log_analyzers[component])
 
         self.stdout_log_lines = log_lines
 
@@ -64,5 +73,6 @@ class DataManager(param.Parameterized):
         for component, analyzer in self.stderr_log_analyzers.items():
             analyzer.update()
             log_lines[component] = self.stderr_log_analyzers[component].pop_new_lines()
+            self.update_logs_last_updated(self.stderr_log_analyzers[component])
 
         self.stderr_log_lines = log_lines
