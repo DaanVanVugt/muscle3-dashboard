@@ -1,5 +1,7 @@
 import datetime
+import os
 from pathlib import Path
+from typing import IO
 
 import param
 
@@ -13,7 +15,7 @@ class DataManager(param.Parameterized):
     def __init__(self, run_folder: Path):
         super().__init__()
         self.run_folder = run_folder
-        self.logs_last_updated = datetime.datetime.now()
+        self.logs_last_updated = None
         self.manager_log_analyzer: ManagerLogAnalyzer | None = None
         self.stdout_log_analyzers: dict[str, BaseLogAnalyzer] = {}
         self.stderr_log_analyzers: dict[str, BaseLogAnalyzer] = {}
@@ -46,12 +48,15 @@ class DataManager(param.Parameterized):
         self.update_stderr_logfiles()
         self.data_updated = True
 
+    def update_logs_last_updated(self, file: IO):
+        file_time = datetime.datetime.fromtimestamp(os.path.getmtime(file.name))
+        self.logs_last_updated = max(self.logs_last_updated or file_time, file_time)
+
     def update_manager_logfiles(self) -> None:
         """Update manager logfile information in viewers"""
         self.manager_log_analyzer.update()
         self.manager_log_lines = self.manager_log_analyzer.pop_new_lines()
-        if len(self.manager_log_lines):
-            self.logs_last_updated = datetime.datetime.now()
+        self.update_logs_last_updated(self.manager_log_analyzer._file)
 
     def update_stdout_logfiles(self) -> None:
         """Update stdout logfiles information in viewers"""
@@ -59,8 +64,7 @@ class DataManager(param.Parameterized):
         for component, analyzer in self.stdout_log_analyzers.items():
             analyzer.update()
             log_lines[component] = self.stdout_log_analyzers[component].pop_new_lines()
-            if len(log_lines[component]):
-                self.logs_last_updated = datetime.datetime.now()
+            self.update_logs_last_updated(self.stdout_log_analyzers[component]._file)
 
         self.stdout_log_lines = log_lines
 
@@ -70,7 +74,6 @@ class DataManager(param.Parameterized):
         for component, analyzer in self.stderr_log_analyzers.items():
             analyzer.update()
             log_lines[component] = self.stderr_log_analyzers[component].pop_new_lines()
-            if len(log_lines[component]):
-                self.logs_last_updated = datetime.datetime.now()
+            self.update_logs_last_updated(self.stderr_log_analyzers[component]._file)
 
         self.stderr_log_lines = log_lines
