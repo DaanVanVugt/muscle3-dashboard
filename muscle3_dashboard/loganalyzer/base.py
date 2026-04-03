@@ -1,3 +1,5 @@
+import datetime
+import os
 from pathlib import Path
 
 import param
@@ -27,3 +29,7 @@ class BaseLogAnalyzer(param.Parameterized):
         """Get new lines from log file and reset self.new_lines"""
         popped_lines, self.new_lines = self.new_lines, []
         return popped_lines
+
+    def file_last_updated(self) -> datetime.datetime:
+        """Get last time file was modified"""
+        return datetime.datetime.fromtimestamp(os.path.getmtime(self._file.name))
