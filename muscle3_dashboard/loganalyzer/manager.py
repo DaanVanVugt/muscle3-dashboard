@@ -177,3 +177,20 @@ class ManagerLogAnalyzer(BaseLogAnalyzer):
             }
             for component in self.components.values()
         ).set_index("name")
+
+    @property
+    def status_message(self):
+        if self.status:
+            return self.status
+        if all(
+            component.status == ComponentStatus.FINISHED
+            for component in self.components.values()
+        ):
+            return "Finished"
+        elif all(
+            component.status == ComponentStatus.NOT_STARTED
+            for component in self.components.values()
+        ):
+            return "Not started"
+        else:
+            return "Running"

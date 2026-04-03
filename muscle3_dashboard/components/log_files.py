@@ -32,11 +32,12 @@ class LogFilesViewer(pn.viewable.Viewer):
         self.component_terminals = {}
         self.select = pn.widgets.Select(name="Choose log", groups={})
         self.terminal_container = pn.pane.Placeholder(
-            "",
-            sizing_mode="stretch_both",
+            "", sizing_mode="stretch_width", styles={"overflow": "hidden"}
         )
         self.select.param.watch(self.update_component_logs, "value")
-        return pn.Column(self.select, self.terminal_container)
+        return pn.Column(
+            self.select, self.terminal_container, styles={"overflow": "hidden"}
+        )
 
     def update_component_logs(self, event):
         """Update component logs on trigger"""
@@ -48,8 +49,10 @@ class LogFilesViewer(pn.viewable.Viewer):
         """Get basic terminal"""
         return pn.widgets.Terminal(
             "",
-            sizing_mode="stretch_both",
-            options={"wrap": False},
+            sizing_mode="stretch_width",
+            options={"wrap": True},
+            styles={"overflow": "hidden"},
+            margin=CARD_MARGIN,
         )
 
     def update(self, event):
