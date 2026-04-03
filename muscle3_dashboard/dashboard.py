@@ -49,10 +49,10 @@ class Dashboard(pn.viewable.Viewer):
                     self.log_messages_table_viewer,
                     max_height=200,
                 ),
-                self.ymmsl_graph_viewer,
+                # self.ymmsl_graph_viewer,
                 self.log_files_viewer,
                 self.crash_analysis_viewer,
-                self.profiling_information_viewer,
+                # self.profiling_information_viewer,
             )
         )
 

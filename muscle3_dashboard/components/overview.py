@@ -27,7 +27,7 @@ class OverviewViewer(pn.viewable.Viewer):
     def update(self, event):
         """Method to update overview viewer from listener"""
         self.logs_last_updated = self.data_manager.logs_last_updated
-        self.status = self.data_manager.manager_log_analyzer.status
+        self.status = self.data_manager.manager_log_analyzer.status_message
         self.components = self.data_manager.manager_log_analyzer.components.keys()
         self.markdown.object = self.markdown_str()
 
