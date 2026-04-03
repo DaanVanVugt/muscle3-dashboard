@@ -1,5 +1,5 @@
 # Panel dashboard for MUSCLE3 simulations
-muscle_dashboard is a Panel based dashboard for log parsing and debugging of of MUSCLE3 simulations.
+muscle_dashboard is a Panel based dashboard for log parsing and debugging of MUSCLE3 simulations.
 
 # Installation
 Quick developer installation guide
