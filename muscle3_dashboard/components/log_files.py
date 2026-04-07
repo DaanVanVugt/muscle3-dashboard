@@ -2,7 +2,7 @@ from collections import defaultdict
 
 import panel as pn
 
-from muscle3_dashboard.constants import CARD_MARGIN, MAX_LINES
+from muscle3_dashboard.constants import CARD_MARGIN, MAX_LINES, TERMINAL_HEIGHT
 from muscle3_dashboard.data_manager import DataManager
 
 
@@ -50,6 +50,7 @@ class LogFilesViewer(pn.viewable.Viewer):
         return pn.widgets.Terminal(
             "",
             sizing_mode="stretch_width",
+            height=TERMINAL_HEIGHT,
             options={"wrap": True},
             styles={"overflow": "hidden"},
             margin=CARD_MARGIN,
