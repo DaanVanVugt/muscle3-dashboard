@@ -16,7 +16,7 @@ pytest
 # How to use
 ```bash
 # make sure your virtual environment is activated
-muscle3_dashboard path/to/my/muscle/simulation/workdir
+muscle_dashboard path/to/my/muscle/simulation/workdir
 ```
 
 # Legal
