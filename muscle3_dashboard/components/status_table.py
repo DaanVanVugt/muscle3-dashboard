@@ -33,7 +33,10 @@ class StatusTableViewer(pn.viewable.Viewer):
 
     def update(self, event):
         df = self.data_manager.manager_log_analyzer.to_dataframe()
-        self.component_status_table.value = df
+        if self.component_status_table.value.empty:
+            self.component_status_table.value = df
+        else:
+            self.component_status_table.patch(df)
 
     def __panel__(self):
         return self.card
