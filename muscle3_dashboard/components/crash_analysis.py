@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 import panel as pn
 
 from muscle3_dashboard.constants import CARD_MARGIN
@@ -32,11 +34,10 @@ class CrashAnalysisViewer(pn.viewable.Viewer):
     @property
     def markdown_str(self):
         """Build string for markdown based on inner state"""
-        crashed_components = {
-            name: exit_code_message
-            for name, exit_code_message in self.components_exit_code_dict.items()
-            if exit_code_message != "0"
-        }
+        crashed_components = defaultdict(list)
+        for name, exit_code_message in self.components_exit_code_dict.items():
+            if exit_code_message and exit_code_message != "0":
+                crashed_components[exit_code_message].append(name)
         if len(crashed_components):
             new_str = (
                 "Crash detected. "
@@ -46,10 +47,18 @@ class CrashAnalysisViewer(pn.viewable.Viewer):
             new_str += "\n".join(
                 [
                     f"- {name} exited with {exit_code_message}"
-                    for name, exit_code_message in crashed_components.items()
+                    for exit_code_message, names in crashed_components.items()
+                    for name in names
                     if "-9" not in exit_code_message
+                    and "crashed" not in exit_code_message
                 ]
             )
+            if "crashed" in crashed_components:
+                new_str += "\n\nThe following components crashed, "
+                new_str += "likely because an error occurred elsewhere:\n\n"
+                new_str += "\n".join(
+                    [f"- {name}" for name in crashed_components["crashed"]]
+                )
         else:
             new_str = "No crash detected"
         return new_str

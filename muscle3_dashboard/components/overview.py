@@ -19,6 +19,8 @@ class OverviewViewer(pn.viewable.Viewer):
             self.markdown,
             title="Overview",
             sizing_mode="stretch_both",
+            collapsible=False,
+            styles={"overflow": "hidden"},
             margin=CARD_MARGIN,
         )
         self.data_manager = data_manager
