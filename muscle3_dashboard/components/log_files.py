@@ -13,7 +13,11 @@ class LogFilesViewer(pn.viewable.Viewer):
     def __init__(self, data_manager: DataManager) -> None:
         super().__init__()
         # TODO: add aggregated logs tab
-        self.muscle_manager_tab = self.log_pane()
+        self.manager_terminal = self.log_pane()
+        self.muscle_manager_tab = pn.Column(
+            self.manager_terminal,
+            sizing_mode="stretch_width",
+        )
         self.component_tabs = self.components_tab_pane()
         self.tabs = pn.Tabs(
             ("Muscle manager logs", self.muscle_manager_tab),
@@ -32,11 +36,14 @@ class LogFilesViewer(pn.viewable.Viewer):
         self.component_terminals = {}
         self.select = pn.widgets.Select(name="Choose log", groups={})
         self.terminal_container = pn.pane.Placeholder(
-            "", sizing_mode="stretch_width", styles={"overflow": "hidden"}
+            "",
+            sizing_mode="stretch_width",
         )
         self.select.param.watch(self.update_component_logs, "value")
         return pn.Column(
-            self.select, self.terminal_container, styles={"overflow": "hidden"}
+            self.select,
+            self.terminal_container,
+            sizing_mode="stretch_width",
         )
 
     def update_component_logs(self, event):
@@ -52,14 +59,13 @@ class LogFilesViewer(pn.viewable.Viewer):
             sizing_mode="stretch_width",
             height=TERMINAL_HEIGHT,
             options={"wrap": True},
-            styles={"overflow": "hidden"},
             margin=CARD_MARGIN,
         )
 
     def update(self, event):
         """Method to update log file viewer from listener"""
         for line in self.data_manager.manager_log_lines[-MAX_LINES:]:
-            self.muscle_manager_tab.write(line)
+            self.manager_terminal.write(line)
 
         for component, lines in self.data_manager.stdout_log_lines.items():
             key = f"{component} - stdout"
@@ -80,7 +86,7 @@ class LogFilesViewer(pn.viewable.Viewer):
             component, _ = key.split("-")
 
             groups[component].append(key)
-        self.select.groups = groups
+        self.select.groups = dict(sorted(groups.items()))
 
     def __panel__(self):
         return self.card
