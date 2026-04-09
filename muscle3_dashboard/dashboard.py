@@ -47,7 +47,7 @@ class Dashboard(pn.viewable.Viewer):
                     self.overview_viewer,
                     self.status_table_viewer,
                     self.log_messages_table_viewer,
-                    max_height=200,
+                    height=200,
                 ),
                 # self.ymmsl_graph_viewer,
                 self.log_files_viewer,
