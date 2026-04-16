@@ -16,5 +16,8 @@ def main(run_folder: Path) -> None:
 
     from .dashboard import Dashboard
 
-    app = Dashboard(run_folder)
+    def app():
+        gui = Dashboard(run_folder)
+        return gui
+
     pn.serve(app, threaded=True)
