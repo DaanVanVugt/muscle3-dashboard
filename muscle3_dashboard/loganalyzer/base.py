@@ -33,3 +33,8 @@ class BaseLogAnalyzer(param.Parameterized):
     def file_last_updated(self) -> datetime.datetime:
         """Get last time file was modified"""
         return datetime.datetime.fromtimestamp(os.path.getmtime(self._file.name))
+
+    @property
+    def path(self):
+        """Path to log file"""
+        return self._path

@@ -1,5 +1,5 @@
-import os
 from collections import defaultdict
+from pathlib import Path
 
 import panel as pn
 
@@ -20,7 +20,7 @@ class LogFilesViewer(pn.viewable.Viewer):
         self.manager_terminal = self.log_terminal()
         self.muscle_manager_tab = self.log_pane(
             self.manager_terminal,
-            self.data_manager.manager_log_analyzer._path,
+            self.data_manager.manager_log_analyzer.path,
         )
         self.component_tabs = self.components_tab_pane()
         self.tabs = pn.Tabs(
@@ -31,7 +31,7 @@ class LogFilesViewer(pn.viewable.Viewer):
         )
         self.card = pn.Card(self.tabs, margin=CARD_MARGIN, title="Log files")
 
-    def components_tab_pane(self):
+    def components_tab_pane(self) -> pn.Column:
         """Tab for separate component logs"""
         self.component_terminals = {}
         self.component_panes = {}
@@ -47,38 +47,22 @@ class LogFilesViewer(pn.viewable.Viewer):
             sizing_mode="stretch_width",
         )
 
-    def truncate_message(self, path):
-        return (
-            f"Logs are truncated at {MAX_LINES} lines. "
-            f"Full logs found at {os.path.abspath(path)}"
-        )
-
-    def update_component_logs(self, event):
+    def update_component_logs(self, event) -> None:
         """Update component logs on trigger"""
-        if event.new not in self.component_terminals:
-            self.component_terminals[event.new] = self.log_terminal()
-            select_component, select_type = self.current_select.split(" - ")
-            if select_type == "stdout":
-                log_path = self.data_manager.stdout_log_analyzers[
-                    select_component
-                ]._path
-            elif select_type == "stderr":
-                log_path = self.data_manager.stderr_log_analyzers[
-                    select_component
-                ]._path
-            self.component_panes[event.new] = self.log_pane(
-                self.component_terminals[event.new], log_path
-            )
         self.component_container.object = self.component_panes[event.new]
 
-    def log_pane(self, terminal, path):
+    def log_pane(self, terminal: pn.widgets.Terminal, path: Path) -> pn.Column:
+        """Get basic log panel with terminal and filepath message"""
         return pn.Column(
             terminal,
-            pn.pane.Markdown(self.truncate_message(path)),
+            pn.pane.Markdown(
+                f"Logs are truncated at {MAX_LINES} lines. "
+                f"Full logs found at {path.absolute()}"
+            ),
             sizing_mode="stretch_width",
         )
 
-    def log_terminal(self):
+    def log_terminal(self) -> pn.widgets.Terminal:
         """Get basic terminal"""
         return pn.widgets.Terminal(
             "",
@@ -88,14 +72,22 @@ class LogFilesViewer(pn.viewable.Viewer):
             margin=CARD_MARGIN,
         )
 
-    def update(self, event):
+    def update(self, event) -> None:
         """Method to update log file viewer from listener"""
         for line in self.data_manager.manager_log_lines[-MAX_LINES:]:
             self.manager_terminal.write(line)
 
-        for log_lines, type in [
-            (self.data_manager.stdout_log_lines, "stdout"),
-            (self.data_manager.stderr_log_lines, "stderr"),
+        for log_lines, analyzers, type in [
+            (
+                self.data_manager.stdout_log_lines,
+                self.data_manager.stdout_log_analyzers,
+                "stdout",
+            ),
+            (
+                self.data_manager.stderr_log_lines,
+                self.data_manager.stderr_log_analyzers,
+                "stderr",
+            ),
         ]:
             for component, lines in log_lines.items():
                 key = f"{component} - {type}"
@@ -103,14 +95,14 @@ class LogFilesViewer(pn.viewable.Viewer):
                     self.component_terminals[key] = self.log_terminal()
                     self.component_panes[key] = self.log_pane(
                         self.component_terminals[key],
-                        self.data_manager.stdout_log_analyzers[component]._path,
+                        analyzers[component].path,
                     )
                 for line in lines[-MAX_LINES:]:
                     self.component_terminals[key].write(line)
 
         groups = defaultdict(list)
         for key in self.component_terminals:
-            component, _ = key.split("-")
+            component, _ = key.split(" - ")
 
             groups[component].append(key)
         self.select.groups = dict(sorted(groups.items()))
