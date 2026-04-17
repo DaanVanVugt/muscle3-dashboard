@@ -56,10 +56,9 @@ class Dashboard(pn.viewable.Viewer):
             )
         )
 
-        pn.state.on_session_created(self.session_created)
-        pn.state.on_session_destroyed(self.session_destroyed)
+        self.session_created()
 
-    def session_created(self, context: SessionContext) -> None:
+    def session_created(self) -> None:
         """Set up background tasks when a new session is created"""
         # Update log files
         # TODO: use watchfiles to subscribe to notifications instead of polling?
