@@ -17,83 +17,68 @@ class LogFilesViewer(pn.viewable.Viewer):
         self.data_manager.param.watch(self.update, "data_updated")
         self.log_path = self.data_manager.run_folder
         # TODO: add aggregated logs tab
-        self.manager_terminal = self.log_pane()
-        self.truncate_message_container = pn.pane.Markdown(self.truncate_message)
-        self.muscle_manager_tab = pn.Column(
+        self.manager_terminal = self.log_terminal()
+        self.muscle_manager_tab = self.log_pane(
             self.manager_terminal,
-            self.truncate_message_container,
-            sizing_mode="stretch_width",
+            self.data_manager.manager_log_analyzer._path,
         )
         self.component_tabs = self.components_tab_pane()
         self.tabs = pn.Tabs(
             ("Muscle manager logs", self.muscle_manager_tab),
             ("Component logs", self.component_tabs),
             sizing_mode="stretch_width",
-            tabs_location="above",
             max_height=800,
-            stylesheets=[".bk-tab {text-align: right;}"],
         )
-        self.tabs.param.watch(self.update_truncate_message, "active")
         self.card = pn.Card(self.tabs, margin=CARD_MARGIN, title="Log files")
 
     def components_tab_pane(self):
         """Tab for separate component logs"""
         self.component_terminals = {}
+        self.component_panes = {}
         self.select = pn.widgets.Select(name="Choose log", groups={})
-        self.terminal_container = pn.pane.Placeholder(
+        self.component_container = pn.pane.Placeholder(
             "",
             sizing_mode="stretch_width",
         )
-        self.select.param.watch(self.update_truncate_message, "value")
         self.select.param.watch(self.update_component_logs, "value")
         return pn.Column(
             self.select,
-            self.terminal_container,
-            self.truncate_message_container,
+            self.component_container,
             sizing_mode="stretch_width",
         )
 
-    def update_truncate_message(self, event):
-        select_component, select_type = self.current_select.split(" - ")
-        if self.current_tab == "Muscle manager logs":
-            self.log_path = self.data_manager.manager_log_analyzer._path
-        elif select_type == "stdout":
-            print("beep")
-            self.log_path = self.data_manager.stdout_log_analyzers[
-                select_component
-            ]._path
-            print(self.log_path)
-        elif select_type == "stderr":
-            print("boop")
-            self.log_path = self.data_manager.stderr_log_analyzers[
-                select_component
-            ]._path
-        else:
-            self.log_path = self.data_manager.run_folder
-        self.truncate_message_container.object = self.truncate_message
-
-    @property
-    def current_tab(self):
-        return self.tabs._names[self.tabs.active]
-
-    @property
-    def current_select(self):
-        return self.select.value
-
-    @property
-    def truncate_message(self):
+    def truncate_message(self, path):
         return (
             f"Logs are truncated at {MAX_LINES} lines. "
-            f"Full logs found at {os.path.abspath(self.log_path)}"
+            f"Full logs found at {os.path.abspath(path)}"
         )
 
     def update_component_logs(self, event):
         """Update component logs on trigger"""
         if event.new not in self.component_terminals:
-            self.component_terminals[event.new] = self.log_pane()
-        self.terminal_container.object = self.component_terminals[event.new]
+            self.component_terminals[event.new] = self.log_terminal()
+            select_component, select_type = self.current_select.split(" - ")
+            if select_type == "stdout":
+                log_path = self.data_manager.stdout_log_analyzers[
+                    select_component
+                ]._path
+            elif select_type == "stderr":
+                log_path = self.data_manager.stderr_log_analyzers[
+                    select_component
+                ]._path
+            self.component_panes[event.new] = self.log_pane(
+                self.component_terminals[event.new], log_path
+            )
+        self.component_container.object = self.component_panes[event.new]
 
-    def log_pane(self):
+    def log_pane(self, terminal, path):
+        return pn.Column(
+            terminal,
+            pn.pane.Markdown(self.truncate_message(path)),
+            sizing_mode="stretch_width",
+        )
+
+    def log_terminal(self):
         """Get basic terminal"""
         return pn.widgets.Terminal(
             "",
@@ -108,19 +93,20 @@ class LogFilesViewer(pn.viewable.Viewer):
         for line in self.data_manager.manager_log_lines[-MAX_LINES:]:
             self.manager_terminal.write(line)
 
-        for component, lines in self.data_manager.stdout_log_lines.items():
-            key = f"{component} - stdout"
-            if key not in self.component_terminals:
-                self.component_terminals[key] = self.log_pane()
-            for line in lines[-MAX_LINES:]:
-                self.component_terminals[key].write(line)
-
-        for component, lines in self.data_manager.stderr_log_lines.items():
-            key = f"{component} - stderr"
-            if key not in self.component_terminals:
-                self.component_terminals[key] = self.log_pane()
-            for line in lines[-MAX_LINES:]:
-                self.component_terminals[key].write(line)
+        for log_lines, type in [
+            (self.data_manager.stdout_log_lines, "stdout"),
+            (self.data_manager.stderr_log_lines, "stderr"),
+        ]:
+            for component, lines in log_lines.items():
+                key = f"{component} - {type}"
+                if key not in self.component_terminals:
+                    self.component_terminals[key] = self.log_terminal()
+                    self.component_panes[key] = self.log_pane(
+                        self.component_terminals[key],
+                        self.data_manager.stdout_log_analyzers[component]._path,
+                    )
+                for line in lines[-MAX_LINES:]:
+                    self.component_terminals[key].write(line)
 
         groups = defaultdict(list)
         for key in self.component_terminals:
