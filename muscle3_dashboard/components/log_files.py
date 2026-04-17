@@ -1,4 +1,5 @@
 from collections import defaultdict
+from pathlib import Path
 
 import panel as pn
 
@@ -12,47 +13,56 @@ class LogFilesViewer(pn.viewable.Viewer):
 
     def __init__(self, data_manager: DataManager) -> None:
         super().__init__()
+        self.data_manager = data_manager
+        self.data_manager.param.watch(self.update, "data_updated")
+        self.log_path = self.data_manager.run_folder
         # TODO: add aggregated logs tab
-        self.manager_terminal = self.log_pane()
-        self.muscle_manager_tab = pn.Column(
+        self.manager_terminal = self.log_terminal()
+        self.muscle_manager_tab = self.log_pane(
             self.manager_terminal,
-            sizing_mode="stretch_width",
+            self.data_manager.manager_log_analyzer.path,
         )
         self.component_tabs = self.components_tab_pane()
         self.tabs = pn.Tabs(
             ("Muscle manager logs", self.muscle_manager_tab),
             ("Component logs", self.component_tabs),
             sizing_mode="stretch_width",
-            tabs_location="left",
             max_height=800,
-            stylesheets=[".bk-tab {text-align: right;}"],
         )
         self.card = pn.Card(self.tabs, margin=CARD_MARGIN, title="Log files")
-        self.data_manager = data_manager
-        self.data_manager.param.watch(self.update, "data_updated")
 
-    def components_tab_pane(self):
+    def components_tab_pane(self) -> pn.Column:
         """Tab for separate component logs"""
         self.component_terminals = {}
+        self.component_panes = {}
         self.select = pn.widgets.Select(name="Choose log", groups={})
-        self.terminal_container = pn.pane.Placeholder(
+        self.component_container = pn.pane.Placeholder(
             "",
             sizing_mode="stretch_width",
         )
         self.select.param.watch(self.update_component_logs, "value")
         return pn.Column(
             self.select,
-            self.terminal_container,
+            self.component_container,
             sizing_mode="stretch_width",
         )
 
-    def update_component_logs(self, event):
+    def update_component_logs(self, event) -> None:
         """Update component logs on trigger"""
-        if event.new not in self.component_terminals:
-            self.component_terminals[event.new] = self.log_pane()
-        self.terminal_container.object = self.component_terminals[event.new]
+        self.component_container.object = self.component_panes[event.new]
 
-    def log_pane(self):
+    def log_pane(self, terminal: pn.widgets.Terminal, path: Path) -> pn.Column:
+        """Get basic log panel with terminal and filepath message"""
+        return pn.Column(
+            terminal,
+            pn.pane.Markdown(
+                f"Logs are truncated at {MAX_LINES} lines. "
+                f"Full logs found at `{path.resolve()}`"
+            ),
+            sizing_mode="stretch_width",
+        )
+
+    def log_terminal(self) -> pn.widgets.Terminal:
         """Get basic terminal"""
         return pn.widgets.Terminal(
             "",
@@ -62,28 +72,37 @@ class LogFilesViewer(pn.viewable.Viewer):
             margin=CARD_MARGIN,
         )
 
-    def update(self, event):
+    def update(self, event) -> None:
         """Method to update log file viewer from listener"""
         for line in self.data_manager.manager_log_lines[-MAX_LINES:]:
             self.manager_terminal.write(line)
 
-        for component, lines in self.data_manager.stdout_log_lines.items():
-            key = f"{component} - stdout"
-            if key not in self.component_terminals:
-                self.component_terminals[key] = self.log_pane()
-            for line in lines[-MAX_LINES:]:
-                self.component_terminals[key].write(line)
-
-        for component, lines in self.data_manager.stderr_log_lines.items():
-            key = f"{component} - stderr"
-            if key not in self.component_terminals:
-                self.component_terminals[key] = self.log_pane()
-            for line in lines[-MAX_LINES:]:
-                self.component_terminals[key].write(line)
+        for log_lines, analyzers, type in [
+            (
+                self.data_manager.stdout_log_lines,
+                self.data_manager.stdout_log_analyzers,
+                "stdout",
+            ),
+            (
+                self.data_manager.stderr_log_lines,
+                self.data_manager.stderr_log_analyzers,
+                "stderr",
+            ),
+        ]:
+            for component, lines in log_lines.items():
+                key = f"{component} - {type}"
+                if key not in self.component_terminals:
+                    self.component_terminals[key] = self.log_terminal()
+                    self.component_panes[key] = self.log_pane(
+                        self.component_terminals[key],
+                        analyzers[component].path,
+                    )
+                for line in lines[-MAX_LINES:]:
+                    self.component_terminals[key].write(line)
 
         groups = defaultdict(list)
         for key in self.component_terminals:
-            component, _ = key.split("-")
+            component, _ = key.split(" - ")
 
             groups[component].append(key)
         self.select.groups = dict(sorted(groups.items()))
