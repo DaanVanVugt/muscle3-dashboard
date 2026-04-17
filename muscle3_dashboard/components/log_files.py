@@ -57,7 +57,7 @@ class LogFilesViewer(pn.viewable.Viewer):
             terminal,
             pn.pane.Markdown(
                 f"Logs are truncated at {MAX_LINES} lines. "
-                f"Full logs found at {path.absolute()}"
+                f"Full logs found at `{path.resolve()}`"
             ),
             sizing_mode="stretch_width",
         )
