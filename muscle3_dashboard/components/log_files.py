@@ -1,3 +1,4 @@
+import os
 from collections import defaultdict
 
 import panel as pn
@@ -12,10 +13,15 @@ class LogFilesViewer(pn.viewable.Viewer):
 
     def __init__(self, data_manager: DataManager) -> None:
         super().__init__()
+        self.data_manager = data_manager
+        self.data_manager.param.watch(self.update, "data_updated")
+        self.log_path = self.data_manager.run_folder
         # TODO: add aggregated logs tab
         self.manager_terminal = self.log_pane()
+        self.truncate_message_container = pn.pane.Markdown(self.truncate_message)
         self.muscle_manager_tab = pn.Column(
             self.manager_terminal,
+            self.truncate_message_container,
             sizing_mode="stretch_width",
         )
         self.component_tabs = self.components_tab_pane()
@@ -23,13 +29,12 @@ class LogFilesViewer(pn.viewable.Viewer):
             ("Muscle manager logs", self.muscle_manager_tab),
             ("Component logs", self.component_tabs),
             sizing_mode="stretch_width",
-            tabs_location="left",
+            tabs_location="above",
             max_height=800,
             stylesheets=[".bk-tab {text-align: right;}"],
         )
+        self.tabs.param.watch(self.update_truncate_message, "active")
         self.card = pn.Card(self.tabs, margin=CARD_MARGIN, title="Log files")
-        self.data_manager = data_manager
-        self.data_manager.param.watch(self.update, "data_updated")
 
     def components_tab_pane(self):
         """Tab for separate component logs"""
@@ -39,11 +44,47 @@ class LogFilesViewer(pn.viewable.Viewer):
             "",
             sizing_mode="stretch_width",
         )
+        self.select.param.watch(self.update_truncate_message, "value")
         self.select.param.watch(self.update_component_logs, "value")
         return pn.Column(
             self.select,
             self.terminal_container,
+            self.truncate_message_container,
             sizing_mode="stretch_width",
+        )
+
+    def update_truncate_message(self, event):
+        select_component, select_type = self.current_select.split(" - ")
+        if self.current_tab == "Muscle manager logs":
+            self.log_path = self.data_manager.manager_log_analyzer._path
+        elif select_type == "stdout":
+            print("beep")
+            self.log_path = self.data_manager.stdout_log_analyzers[
+                select_component
+            ]._path
+            print(self.log_path)
+        elif select_type == "stderr":
+            print("boop")
+            self.log_path = self.data_manager.stderr_log_analyzers[
+                select_component
+            ]._path
+        else:
+            self.log_path = self.data_manager.run_folder
+        self.truncate_message_container.object = self.truncate_message
+
+    @property
+    def current_tab(self):
+        return self.tabs._names[self.tabs.active]
+
+    @property
+    def current_select(self):
+        return self.select.value
+
+    @property
+    def truncate_message(self):
+        return (
+            f"Logs are truncated at {MAX_LINES} lines. "
+            f"Full logs found at {os.path.abspath(self.log_path)}"
         )
 
     def update_component_logs(self, event):
