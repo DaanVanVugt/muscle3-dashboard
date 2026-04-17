@@ -2,7 +2,6 @@ from importlib.metadata import version
 from pathlib import Path
 
 import panel as pn
-from bokeh.application.application import SessionContext
 
 from muscle3_dashboard.components.crash_analysis import CrashAnalysisViewer
 from muscle3_dashboard.components.log_files import LogFilesViewer
@@ -63,11 +62,6 @@ class Dashboard(pn.viewable.Viewer):
         # Update log files
         # TODO: use watchfiles to subscribe to notifications instead of polling?
         pn.state.add_periodic_callback(self.data_manager.update, period=1000)
-
-    def session_destroyed(self, context: SessionContext) -> None:
-        """Close session"""
-        print("Session destroyed, shutting down")
-        raise SystemExit(0)
 
     def __panel__(self):
         return self.template

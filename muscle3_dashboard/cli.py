@@ -1,8 +1,8 @@
+import logging
 from pathlib import Path
 from threading import Lock
 
 import click
-from bokeh.application.application import SessionContext
 
 from muscle3_dashboard.constants import (
     CHECK_UNUSED_SESSIONS_MILLISECONDS,
@@ -23,6 +23,7 @@ def main(run_folder: Path) -> None:
     # Local import to not import all of panel when doing
     # `muscle_dashboard --help`
     import panel as pn
+    from bokeh.application.application import SessionContext
 
     from .dashboard import Dashboard
 
@@ -35,7 +36,7 @@ def main(run_folder: Path) -> None:
         global _active_sessions
         with _lock:
             _active_sessions += 1
-            print(f"Session created, {_active_sessions} sessions active")
+            logging.info(f"Session created, {_active_sessions} sessions active")
 
     def session_destroyed(context: SessionContext) -> None:
         """Close session"""
@@ -43,10 +44,10 @@ def main(run_folder: Path) -> None:
         with _lock:
             _active_sessions -= 1
             if _active_sessions == 0:
-                print("Session destroyed, shutting down")
+                logging.info("Last session destroyed, shutting down")
                 raise SystemExit(0)
             else:
-                print(f"Session destroyed, {_active_sessions} sessions active")
+                logging.info(f"Session destroyed, {_active_sessions} sessions active")
 
     pn.state.on_session_created(session_created)
     pn.state.on_session_destroyed(session_destroyed)
