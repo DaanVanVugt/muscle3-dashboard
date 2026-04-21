@@ -24,7 +24,8 @@ class Dashboard(pn.viewable.Viewer):
         self.run_folder: Path | None = run_folder
 
         title = (
-            f"MUSCLE3 Dashboard | {version('muscle3-dashboard')} | {run_folder.name}"
+            f"MUSCLE3 Dashboard | {version('muscle3-dashboard')} | "
+            f"Run folder: {run_folder.name}"
         )
         self.template = pn.template.VanillaTemplate(
             collapsed_sidebar=True,
