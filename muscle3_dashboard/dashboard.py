@@ -25,7 +25,7 @@ class Dashboard(pn.viewable.Viewer):
 
         self.template = pn.template.VanillaTemplate(
             collapsed_sidebar=True,
-            title=f"MUSCLE3 Dashboard | {version('muscle3-dashboard')}",
+            title=f"MUSCLE3 Dashboard | {version('muscle3-dashboard')} | {run_folder.name}",
         )
 
         self.data_manager = DataManager(run_folder)
