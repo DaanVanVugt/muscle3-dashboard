@@ -23,9 +23,12 @@ class Dashboard(pn.viewable.Viewer):
     def __init__(self, run_folder: Path | None = None) -> None:
         self.run_folder: Path | None = run_folder
 
+        title = (
+            f"MUSCLE3 Dashboard | {version('muscle3-dashboard')} | {run_folder.name}"
+        )
         self.template = pn.template.VanillaTemplate(
             collapsed_sidebar=True,
-            title=f"MUSCLE3 Dashboard | {version('muscle3-dashboard')} | {run_folder.name}",
+            title=title,
         )
 
         self.data_manager = DataManager(run_folder)
