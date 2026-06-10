@@ -22,6 +22,17 @@ import click
 # (%r expands to the remote username). Unix sockets are host-local even
 # on a shared filesystem: pin one login node and run m3dash there.
 DEFAULT_SOCKET = Path("~/.m3dash.sock").expanduser()
+
+
+def default_tcp_port() -> int:
+    """Deterministic per-user loopback port, for sites where sshd
+    prohibits unix-socket forwarding (AllowStreamLocalForwarding no).
+
+    Outside the Linux ephemeral range (32768+) to avoid collisions with
+    short-lived connections. NB unlike the 0600 socket, a loopback TCP
+    port is connectable by other users on the same node.
+    """
+    return 20000 + os.getuid() % 10000
 DEFAULT_LOCAL_PORT = 4333
 STATE_DIR = Path("~/.local/state/m3dash").expanduser()
 
@@ -65,7 +76,13 @@ def main() -> None:
     "tcp_port",
     type=int,
     default=None,
-    help="Also serve on this TCP port (see --address).",
+    help="Also serve on this TCP port (see --address). By default a "
+    "per-user port (20000 + uid % 10000) is used; --no-tcp disables.",
+)
+@click.option(
+    "--no-tcp",
+    is_flag=True,
+    help="Serve on the unix socket only.",
 )
 @click.option(
     "--address",
@@ -99,6 +116,7 @@ def serve(
     socket_path: Path,
     local_port: int,
     tcp_port: int | None,
+    no_tcp: bool,
     address: str,
     no_socket: bool,
     ws_origins: tuple[str],
@@ -108,8 +126,12 @@ def serve(
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
     )
+    if no_tcp and tcp_port is not None:
+        raise click.UsageError("--no-tcp conflicts with --tcp")
+    if not no_tcp and tcp_port is None:
+        tcp_port = default_tcp_port()
     if no_socket and tcp_port is None:
-        raise click.UsageError("--no-socket requires --tcp <port>")
+        raise click.UsageError("--no-socket requires TCP (drop --no-tcp)")
     from muscle3_dashboard.m3dash import app
 
     all_roots = app.load_roots()
@@ -171,6 +193,28 @@ def ensure(socket_path: Path, timeout: float) -> None:
     raise click.ClickException(
         f"m3dash did not come up within {timeout}s, "
         f"see {STATE_DIR / 'serve.log'}"
+    )
+
+
+@main.command()
+@click.option("--host", default=None, help="HostName for the ssh config block.")
+@click.option("--local-port", default=DEFAULT_LOCAL_PORT, show_default=True)
+def sshline(host: str | None, local_port: int) -> None:
+    """Print the ssh config block for reaching this m3dash instance.
+
+    Run this on the login node where m3dash runs; paste the output into
+    ~/.ssh/config on your own machine.
+    """
+    hostname = host or socket.getfqdn()
+    click.echo(
+        f"Host m3dash\n"
+        f"    HostName {hostname}\n"
+        f"    LocalForward 127.0.0.1:{local_port} "
+        f"127.0.0.1:{default_tcp_port()}\n"
+        f"    ExitOnForwardFailure no\n"
+        f"# Where sshd allows unix-socket forwarding "
+        f"(AllowStreamLocalForwarding), prefer:\n"
+        f"#   LocalForward 127.0.0.1:{local_port} {DEFAULT_SOCKET}"
     )
 
 

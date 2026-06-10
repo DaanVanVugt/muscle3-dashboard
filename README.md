@@ -44,6 +44,14 @@ Host hpc
 Pin one specific login node: unix sockets are host-local even on a
 shared filesystem, so sshd and m3dash must be on the same machine.
 
+Many sites prohibit unix-socket forwarding (the symptom is
+`administratively prohibited: open failed` while normal `-L` port
+forwards work). For those, m3dash also listens on a deterministic
+per-user loopback TCP port (`20000 + uid % 10000`); run `m3dash
+sshline` on the login node to print the matching ssh config block.
+Note that unlike the 0600 socket, a loopback port is connectable by
+other users on the same node.
+
 On the cluster, add to `~/.bashrc`:
 
 ```bash
