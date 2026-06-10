@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+import socket
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -80,6 +81,8 @@ class Run:
     job_state: str | None = None
     pid: int | None = None
     last_updated: datetime | None = None
+    #: Served-UI URLs harvested from instance logs (running runs only).
+    web_urls: list[dict] = field(default_factory=list)
 
     @property
     def name(self) -> str:
@@ -97,6 +100,7 @@ class Run:
             "last_updated": (
                 self.last_updated.isoformat() if self.last_updated else None
             ),
+            "web_urls": self.web_urls,
         }
 
 
@@ -282,6 +286,18 @@ def discover_runs(roots: list[Path]) -> list[Run]:
         if existing.status is RunStatus.UNKNOWN:
             existing.status = run.status
     runs = list(merged.values())
+    for run in runs:
+        if run.status is RunStatus.RUNNING:
+            # Only running runs can have a live UI; harvesting reads
+            # instance logs, so skip it for the (many) finished runs.
+            # A locally-run manager's actors share its node; for SLURM
+            # runs the node comes from the logs themselves.
+            fallback = socket.gethostname() if "process" in run.sources else None
+            from muscle3_dashboard.m3dash.harvest import harvest_run
+
+            run.web_urls = [
+                u.to_dict() for u in harvest_run(run.run_dir, fallback)
+            ]
     runs.sort(
         key=lambda r: r.last_updated or datetime.fromtimestamp(0), reverse=True
     )

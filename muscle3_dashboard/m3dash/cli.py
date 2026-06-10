@@ -4,6 +4,7 @@ Server side (login node):
   ``m3dash serve``    run the server on a unix socket (+ a per-user TCP port).
   ``m3dash ensure``   start serve if not already running (for ~/.bashrc).
   ``m3dash ls``       list discovered runs on the terminal.
+  ``m3dash urls``     show served-UI URLs harvested from a run's logs.
   ``m3dash sshline``  print the ssh config block to reach this instance.
   ``m3dash pipe``     bridge stdin/stdout to the unix socket (used by connect).
 
@@ -453,6 +454,27 @@ def ls(as_json: bool, roots: tuple[Path]) -> None:
         click.echo(
             f"{run.status.value:9} {updated:16} {ref:>8}  {run.run_dir}"
         )
+
+
+@main.command()
+@click.argument(
+    "run_dir", type=click.Path(exists=True, file_okay=False, path_type=Path)
+)
+@click.option("--node", default=None, help="Fallback node for loopback URLs.")
+@click.option("--json", "as_json", is_flag=True, help="Output JSON.")
+def urls(run_dir: Path, node: str | None, as_json: bool) -> None:
+    """Show served-UI URLs harvested from a run's instance logs."""
+    import json as _json
+
+    from muscle3_dashboard.m3dash.harvest import harvest_run
+
+    found = harvest_run(run_dir, fallback_node=node)
+    if as_json:
+        click.echo(_json.dumps([u.to_dict() for u in found], indent=2))
+        return
+    for u in found:
+        mark = "" if u.resolved else "  (node unresolved)"
+        click.echo(f"{u.instance:24} {u.reachable_url}{mark}")
 
 
 if __name__ == "__main__":

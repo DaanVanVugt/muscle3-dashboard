@@ -139,6 +139,18 @@ def _runs_table_html(runs: list[Run]) -> str:
             ref = f"pid {run.pid}"
         else:
             ref = ""
+        uis = []
+        for u in run.web_urls:
+            if u["resolved"]:
+                uis.append(
+                    f'<a href="{html.escape(u["reachable_url"])}" '
+                    f'target="_blank">{html.escape(u["instance"])}</a>'
+                )
+            else:
+                uis.append(
+                    f'<span title="node unresolved: {html.escape(u["original"])}">'
+                    f'{html.escape(u["instance"])} (?)</span>'
+                )
         rows.append(
             f"<tr>"
             f'<td><a href="run?{query}" target="_blank">'
@@ -147,16 +159,18 @@ def _runs_table_html(runs: list[Run]) -> str:
             f"<td>{_age(run.last_updated)}</td>"
             f"<td>{html.escape(via)}</td>"
             f"<td>{html.escape(ref)}</td>"
+            f"<td>{', '.join(uis)}</td>"
             f'<td style="color:#888;font-size:0.85em">'
             f"{html.escape(str(run.run_dir))}</td>"
             f"</tr>"
         )
     if not rows:
-        rows = ['<tr><td colspan="6"><i>No runs found yet.</i></td></tr>']
+        rows = ['<tr><td colspan="7"><i>No runs found yet.</i></td></tr>']
     return (
         '<table style="border-spacing:12px 4px">'
         "<tr><th>Run</th><th>Status</th><th>Updated</th>"
-        "<th>Found via</th><th>Job/PID</th><th>Run directory</th></tr>"
+        "<th>Found via</th><th>Job/PID</th><th>Web UIs</th>"
+        "<th>Run directory</th></tr>"
         + "".join(rows)
         + "</table>"
     )
