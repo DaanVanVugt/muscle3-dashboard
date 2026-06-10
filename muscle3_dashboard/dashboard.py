@@ -1,4 +1,5 @@
-from importlib.metadata import version
+from functools import lru_cache
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import panel as pn
@@ -17,6 +18,27 @@ from muscle3_dashboard.data_manager import DataManager
 pn.extension("tabulator")
 
 
+@lru_cache(maxsize=1)
+def _dashboard_version() -> str:
+    """Version for the title.
+
+    When installed, read the distribution metadata. When run from a
+    source checkout (no installed distribution), derive a version from
+    git via setuptools_scm, which this project already uses. Fall back
+    to 'dev' if neither is available (e.g. an unpacked tarball).
+    """
+    try:
+        return version("muscle3-dashboard")
+    except PackageNotFoundError:
+        pass
+    try:
+        from setuptools_scm import get_version
+
+        return get_version(root="..", relative_to=__file__)
+    except Exception:
+        return "dev"
+
+
 class Dashboard(pn.viewable.Viewer):
     """Main dashboard for muscle3_dashboard app"""
 
@@ -24,7 +46,7 @@ class Dashboard(pn.viewable.Viewer):
         self.run_folder: Path | None = run_folder
 
         title = (
-            f"MUSCLE3 Dashboard | {version('muscle3-dashboard')} | "
+            f"MUSCLE3 Dashboard | {_dashboard_version()} | "
             f"Run folder: {run_folder.name}"
         )
         self.template = pn.template.VanillaTemplate(
