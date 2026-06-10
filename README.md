@@ -97,3 +97,21 @@ Other commands: `m3dash ls [--json]` lists discovered runs;
 `m3dash serve --tcp 5006` also serves on loopback TCP for debugging;
 extra run roots can be added in the UI, with `--root`, or in
 `~/.config/m3dash/roots`.
+
+
+## Reaching live actor UIs (proxy)
+
+When a run is active, m3dash harvests any `http://...` URL its actors
+print and reverse-proxies each one under its own subdomain of the
+address you already use, e.g. `http://t<token>.localhost:4333`. Because
+browsers resolve any `*.localhost` name to loopback, this needs no DNS
+and no extra forward -- it rides the same socket/`connect` tunnel as the
+dashboard. The per-run page lists these links per component under a
+"Web UIs" card.
+
+A subdomain (not a path prefix) is used so the actor's absolute
+`/static` and `/ws` URLs keep working, and the proxy rewrites the
+WebSocket `Origin` to `localhost:<target-port>` so the target's Bokeh
+origin check passes. Subdomain proxying works over the loopback access
+path (socket or `m3dash connect`); set `--local-port` to match the port
+you reach m3dash on so the generated links are correct.

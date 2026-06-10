@@ -14,6 +14,10 @@ and is reached through an SSH forward, e.g. in ``~/.ssh/config``::
     LocalForward 127.0.0.1:4333 /home/ITER/%r/.m3dash.sock
 
 (``%r`` expands to the remote username, so one line serves every user.)
+
+It additionally reverse-proxies each running run's harvested actor UIs
+under per-target subdomains (``<token>.localhost``); see
+:mod:`muscle3_dashboard.m3dash.proxy`.
 """
 
 import html
@@ -39,6 +43,8 @@ logger = logging.getLogger(__name__)
 ROOTS_FILE = Path("~/.config/m3dash/roots").expanduser()
 RESCAN_INTERVAL_SECONDS = 60
 VIEW_REFRESH_MILLISECONDS = 5000
+#: Local port the browser reaches m3dash on; used to build proxy links.
+LOCAL_PORT = 4333
 
 _STATUS_COLORS = {
     RunStatus.RUNNING: "#1976d2",
@@ -245,7 +251,43 @@ def run_app():
     # Local import: pulls in the full dashboard and its dependencies
     from muscle3_dashboard.dashboard import Dashboard
 
-    return Dashboard(run_dir.resolve())
+    dash = Dashboard(run_dir.resolve())
+    card = _web_uis_card(run_dir.resolve())
+    if card is not None:
+        dash.template.main.insert(0, card)
+    return dash
+
+
+def _web_uis_card(run_dir: Path):
+    """A card listing each instance's harvested UIs as proxy links."""
+    from muscle3_dashboard.m3dash.harvest import harvest_run
+    from muscle3_dashboard.m3dash.proxy import subdomain_host
+
+    found = harvest_run(run_dir, fallback_node=socket.gethostname())
+    if not found:
+        return None
+    by_instance: dict[str, list[str]] = {}
+    for u in found:
+        if u.resolved and u.node and u.port:
+            sub = subdomain_host(u.node, u.port, f"localhost:{LOCAL_PORT}")
+            link = f"http://{sub}{u.path or '/'}"
+            label = f'<a href="{html.escape(link)}" target="_blank">{html.escape(u.original)}</a>'
+        else:
+            label = (
+                f'{html.escape(u.original)} '
+                f'<span style="color:#999">(node unresolved)</span>'
+            )
+        by_instance.setdefault(u.instance, []).append(label)
+    items = "".join(
+        f"<li><b>{html.escape(inst)}</b>: {' , '.join(links)}</li>"
+        for inst, links in sorted(by_instance.items())
+    )
+    return pn.Card(
+        pn.pane.HTML(f"<ul style='margin:0'>{items}</ul>"),
+        title="Web UIs (proxied)",
+        collapsed=False,
+        sizing_mode="stretch_width",
+    )
 
 
 def _claim_socket(socket_path: Path) -> None:
@@ -269,6 +311,7 @@ def serve(
     websocket_origins: list[str],
     tcp_port: int | None = None,
     address: str = "127.0.0.1",
+    local_port: int = 4333,
 ) -> None:
     """Run the m3dash server (blocking).
 
@@ -280,10 +323,13 @@ def serve(
         tcp_port: Optional TCP port to also serve on (mainly for
             debugging; its loopback origins are added automatically).
         address: Address to bind the TCP port to.
+        local_port: Port the browser reaches m3dash on; used to build
+            ``<token>.localhost:<local_port>`` proxy links.
     """
-    global _index
+    global _index, LOCAL_PORT
     _index = RunIndex(roots)
     _index.start()
+    LOCAL_PORT = local_port
 
     origins = list(websocket_origins)
     if tcp_port:
@@ -297,6 +343,12 @@ def serve(
         start=False,
         threaded=False,
     )
+    # Mount the per-target subdomain reverse-proxy on the same tornado
+    # app; host-routing means these only catch <token>.localhost traffic
+    # and leave the dashboard's own routes untouched.
+    from muscle3_dashboard.m3dash.proxy import PROXY_HOST_PATTERN, proxy_handlers
+
+    server._tornado.add_handlers(PROXY_HOST_PATTERN, proxy_handlers())
     if socket_path is not None:
         from tornado.netutil import bind_unix_socket
 
