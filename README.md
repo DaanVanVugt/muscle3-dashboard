@@ -52,6 +52,33 @@ sshline` on the login node to print the matching ssh config block.
 Note that unlike the 0600 socket, a loopback port is connectable by
 other users on the same node.
 
+## When all forwarding is prohibited
+
+Some sites disable *both* TCP and unix-socket forwarding, so every
+`ssh -L`/`-R`/`-D` fails with `administratively prohibited`. ssh
+*exec* channels (running a command) are not forwarding and stay
+allowed, so m3dash tunnels over one:
+
+```bash
+# on your machine (needs only python3 + ssh; no socat):
+m3dash connect <login-node> --local-port 4000
+```
+
+`connect` listens locally and, per browser connection, runs
+`ssh <login-node> m3dash pipe`, which connects to `~/.m3dash.sock` on
+the login node and shovels bytes over stdin/stdout. Add an ssh
+ControlMaster so each connection reuses one authenticated session:
+
+```
+Host <login-node>
+    ControlMaster auto
+    ControlPath ~/.ssh/cm-%r@%h:%p
+    ControlPersist 10m
+```
+
+Pass through a bastion with `--ssh 'ssh -J bastion'`, and target a
+non-default remote socket with `--remote-socket`.
+
 On the cluster, add to `~/.bashrc`:
 
 ```bash

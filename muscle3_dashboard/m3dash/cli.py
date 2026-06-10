@@ -1,17 +1,25 @@
 """m3dash command line interface.
 
-``m3dash serve``: run the server on a per-user unix socket.
-``m3dash ensure``: start the server if it is not already running (cheap
-and silent; suitable for ~/.bashrc).
-``m3dash ls``: list discovered runs on the terminal.
+Server side (login node):
+  ``m3dash serve``    run the server on a unix socket (+ a per-user TCP port).
+  ``m3dash ensure``   start serve if not already running (for ~/.bashrc).
+  ``m3dash ls``       list discovered runs on the terminal.
+  ``m3dash sshline``  print the ssh config block to reach this instance.
+  ``m3dash pipe``     bridge stdin/stdout to the unix socket (used by connect).
+
+Client side (your machine):
+  ``m3dash connect``  listen on a local port and tunnel to a login node over
+                      an ssh *exec* channel -- works even when ssh port and
+                      unix-socket forwarding are both prohibited.
 """
 
-import getpass
 import logging
 import os
+import shlex
 import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -207,15 +215,151 @@ def sshline(host: str | None, local_port: int) -> None:
     """
     hostname = host or socket.getfqdn()
     click.echo(
+        f"# Forwarding allowed -> add to ~/.ssh/config:\n"
         f"Host m3dash\n"
         f"    HostName {hostname}\n"
         f"    LocalForward 127.0.0.1:{local_port} "
         f"127.0.0.1:{default_tcp_port()}\n"
         f"    ExitOnForwardFailure no\n"
-        f"# Where sshd allows unix-socket forwarding "
-        f"(AllowStreamLocalForwarding), prefer:\n"
-        f"#   LocalForward 127.0.0.1:{local_port} {DEFAULT_SOCKET}"
+        f"#   ...where unix-socket forwarding is allowed, prefer:\n"
+        f"#   LocalForward 127.0.0.1:{local_port} {DEFAULT_SOCKET}\n"
+        f"#\n"
+        f"# Forwarding prohibited (administratively prohibited: open\n"
+        f"# failed) -> no ssh config needed, run on your machine:\n"
+        f"#   m3dash connect {hostname} --local-port {local_port}"
     )
+
+
+def _shovel(src: socket.socket | int, dst: socket.socket | int) -> None:
+    """Copy bytes from src to dst until EOF; src/dst are fds or sockets."""
+    src_fd = src if isinstance(src, int) else src.fileno()
+    dst_fd = dst if isinstance(dst, int) else dst.fileno()
+    try:
+        while True:
+            chunk = os.read(src_fd, 65536)
+            if not chunk:
+                break
+            os.write(dst_fd, chunk)
+    except OSError:
+        pass
+
+
+@main.command()
+@click.option(
+    "--socket",
+    "socket_path",
+    type=click.Path(path_type=Path),
+    default=DEFAULT_SOCKET,
+    show_default=True,
+)
+def pipe(socket_path: Path) -> None:
+    """Bridge stdin/stdout to the m3dash unix socket (no output of its own).
+
+    This is the remote end of ``m3dash connect``: it is run on the login
+    node over an ssh exec channel, so it needs no forwarding. Equivalent
+    to ``socat - UNIX-CONNECT:<socket>`` but with no socat dependency.
+    """
+    # Expand ~ here rather than relying on the remote shell: connect()
+    # shell-quotes the path, which would suppress tilde expansion.
+    socket_path = socket_path.expanduser()
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        sock.connect(str(socket_path))
+    except OSError as exc:
+        sys.stderr.write(f"m3dash pipe: cannot connect to {socket_path}: {exc}\n")
+        raise SystemExit(1)
+    up = threading.Thread(
+        target=_shovel, args=(sys.stdin.buffer.fileno(), sock), daemon=True
+    )
+    up.start()
+    _shovel(sock, sys.stdout.buffer.fileno())  # blocks until socket EOF
+    sock.close()
+
+
+@main.command()
+@click.argument("ssh_host")
+@click.option(
+    "--local-port",
+    default=DEFAULT_LOCAL_PORT,
+    show_default=True,
+    help="Local port to listen on.",
+)
+@click.option(
+    "--remote-socket",
+    default=str(DEFAULT_SOCKET).replace(str(Path.home()), "~", 1),
+    show_default=True,
+    help="Path of the m3dash socket on the login node.",
+)
+@click.option(
+    "--ssh",
+    "ssh_cmd",
+    default="ssh",
+    show_default=True,
+    help="ssh command (add options here, e.g. 'ssh -J bastion').",
+)
+@click.option(
+    "--remote-m3dash",
+    default="m3dash",
+    show_default=True,
+    help="How to invoke m3dash on the login node.",
+)
+def connect(
+    ssh_host: str,
+    local_port: int,
+    remote_socket: str,
+    ssh_cmd: str,
+    remote_m3dash: str,
+) -> None:
+    """Tunnel a local port to a login node's m3dash over ssh exec.
+
+    Use this when ``ssh -L`` fails with "administratively prohibited"
+    (both TCP and unix-socket forwarding disabled): exec channels are not
+    forwarding, so they stay allowed. Each browser connection spawns one
+    ``ssh <host> m3dash pipe``; an ssh ControlMaster makes that cheap:
+
+        Host <host>
+            ControlMaster auto
+            ControlPath ~/.ssh/cm-%r@%h:%p
+            ControlPersist 10m
+
+    Then browse http://localhost:<local-port>.
+    """
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", local_port))
+    listener.listen(16)
+    click.echo(
+        f"m3dash: http://localhost:{local_port}  ->  "
+        f"{ssh_host}:{remote_socket}  (Ctrl-C to stop)",
+        err=True,
+    )
+
+    def handle(conn: socket.socket) -> None:
+        argv = [
+            *shlex.split(ssh_cmd),
+            ssh_host,
+            f"{remote_m3dash} pipe --socket {shlex.quote(remote_socket)}",
+        ]
+        proc = subprocess.Popen(
+            argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE
+        )
+        assert proc.stdin and proc.stdout
+        t = threading.Thread(
+            target=_shovel, args=(conn, proc.stdin.fileno()), daemon=True
+        )
+        t.start()
+        _shovel(proc.stdout.fileno(), conn)
+        conn.close()
+        proc.terminate()
+
+    try:
+        while True:
+            conn, _ = listener.accept()
+            threading.Thread(target=handle, args=(conn,), daemon=True).start()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        listener.close()
 
 
 @main.command("ls")
