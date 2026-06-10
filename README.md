@@ -61,13 +61,17 @@ allowed, so m3dash tunnels over one:
 
 ```bash
 # on your machine (needs only python3 + ssh; no socat):
-m3dash connect <login-node> --local-port 4000
+m3dash connect <login-node> --local-port 4333
 ```
 
-`connect` listens locally and, per browser connection, runs
-`ssh <login-node> m3dash pipe`, which connects to `~/.m3dash.sock` on
-the login node and shovels bytes over stdin/stdout. Add an ssh
-ControlMaster so each connection reuses one authenticated session:
+By default `connect` runs a single `ssh <login-node> m3dash pipe
+--mux` and multiplexes every browser connection over that one channel
+(one authentication, no per-connection ssh setup) -- so it works well
+even without an ssh ControlMaster.
+
+With `--no-mux` it instead runs one `ssh <login-node> m3dash pipe` per
+browser connection; for that mode add an ssh ControlMaster so each
+connection reuses one authenticated session:
 
 ```
 Host <login-node>

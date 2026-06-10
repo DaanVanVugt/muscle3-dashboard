@@ -252,19 +252,42 @@ def _shovel(src: socket.socket | int, dst: socket.socket | int) -> None:
     default=DEFAULT_SOCKET,
     show_default=True,
 )
-def pipe(socket_path: Path) -> None:
+@click.option(
+    "--mux",
+    is_flag=True,
+    help="Multiplex many connections over this one channel (used by "
+    "'m3dash connect'); otherwise carry a single connection.",
+)
+def pipe(socket_path: Path, mux: bool) -> None:
     """Bridge stdin/stdout to the m3dash unix socket (no output of its own).
 
     This is the remote end of ``m3dash connect``: it is run on the login
-    node over an ssh exec channel, so it needs no forwarding. Equivalent
-    to ``socat - UNIX-CONNECT:<socket>`` but with no socat dependency.
+    node over an ssh exec channel, so it needs no forwarding. Without
+    ``--mux`` it is equivalent to ``socat - UNIX-CONNECT:<socket>`` (one
+    connection); with ``--mux`` it speaks the framing protocol in
+    :mod:`muscle3_dashboard.m3dash.mux` so a single channel carries every
+    browser connection.
     """
     # Expand ~ here rather than relying on the remote shell: connect()
     # shell-quotes the path, which would suppress tilde expansion.
     socket_path = socket_path.expanduser()
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    try:
+
+    def connect_backend() -> socket.socket:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.connect(str(socket_path))
+        return sock
+
+    if mux:
+        from muscle3_dashboard.m3dash import mux as muxmod
+
+        muxmod.serve(
+            sys.stdin.buffer.fileno(), sys.stdout.buffer.fileno(),
+            connect_backend,
+        )
+        return
+
+    try:
+        sock = connect_backend()
     except OSError as exc:
         sys.stderr.write(f"m3dash pipe: cannot connect to {socket_path}: {exc}\n")
         raise SystemExit(1)
@@ -303,19 +326,31 @@ def pipe(socket_path: Path) -> None:
     show_default=True,
     help="How to invoke m3dash on the login node.",
 )
+@click.option(
+    "--mux/--no-mux",
+    default=True,
+    show_default=True,
+    help="Multiplex all connections over one ssh channel (default), or "
+    "spawn one ssh per connection (needs a ControlMaster to be cheap).",
+)
 def connect(
     ssh_host: str,
     local_port: int,
     remote_socket: str,
     ssh_cmd: str,
     remote_m3dash: str,
+    mux: bool,
 ) -> None:
     """Tunnel a local port to a login node's m3dash over ssh exec.
 
     Use this when ``ssh -L`` fails with "administratively prohibited"
     (both TCP and unix-socket forwarding disabled): exec channels are not
-    forwarding, so they stay allowed. Each browser connection spawns one
-    ``ssh <host> m3dash pipe``; an ssh ControlMaster makes that cheap:
+    forwarding, so they stay allowed.
+
+    By default a single ``ssh <host> m3dash pipe --mux`` carries every
+    browser connection (one authentication, no per-connection setup).
+    With ``--no-mux`` each connection spawns its own ``ssh <host> m3dash
+    pipe``; that wants an ssh ControlMaster to be cheap:
 
         Host <host>
             ControlMaster auto
@@ -324,21 +359,53 @@ def connect(
 
     Then browse http://localhost:<local-port>.
     """
+    rsock = shlex.quote(remote_socket)
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind(("127.0.0.1", local_port))
     listener.listen(16)
     click.echo(
         f"m3dash: http://localhost:{local_port}  ->  "
-        f"{ssh_host}:{remote_socket}  (Ctrl-C to stop)",
+        f"{ssh_host}:{remote_socket}  ({'mux' if mux else 'per-conn'}; "
+        f"Ctrl-C to stop)",
         err=True,
     )
+
+    if mux:
+        from muscle3_dashboard.m3dash.mux import MuxClient
+
+        argv = [
+            *shlex.split(ssh_cmd),
+            ssh_host,
+            f"{remote_m3dash} pipe --mux --socket {rsock}",
+        ]
+        proc = subprocess.Popen(
+            argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE
+        )
+        assert proc.stdin and proc.stdout
+        try:
+            client = MuxClient(proc.stdout.fileno(), proc.stdin.fileno())
+        except EOFError:
+            raise click.ClickException(
+                f"ssh channel closed before handshake; check that "
+                f"'{remote_m3dash}' is on PATH on {ssh_host}"
+            )
+        try:
+            while proc.poll() is None:
+                conn, _ = listener.accept()
+                client.add(conn)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            proc.terminate()
+            listener.close()
+        return
 
     def handle(conn: socket.socket) -> None:
         argv = [
             *shlex.split(ssh_cmd),
             ssh_host,
-            f"{remote_m3dash} pipe --socket {shlex.quote(remote_socket)}",
+            f"{remote_m3dash} pipe --socket {rsock}",
         ]
         proc = subprocess.Popen(
             argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE
