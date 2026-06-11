@@ -312,6 +312,7 @@ def serve(
     tcp_port: int | None = None,
     address: str = "127.0.0.1",
     local_port: int = 4333,
+    open_browser: bool = False,
 ) -> None:
     """Run the m3dash server (blocking).
 
@@ -325,6 +326,8 @@ def serve(
         address: Address to bind the TCP port to.
         local_port: Port the browser reaches m3dash on; used to build
             ``<token>.localhost:<local_port>`` proxy links.
+        open_browser: Open a browser at the TCP URL once serving (for a
+            desktop session running on the node itself). Needs tcp_port.
     """
     global _index, LOCAL_PORT
     _index = RunIndex(roots)
@@ -357,7 +360,15 @@ def serve(
         server._http.add_sockets([bind_unix_socket(str(socket_path), mode=0o600)])
         logger.info("Serving on unix socket %s", socket_path)
     if tcp_port:
-        logger.info("Serving on http://%s:%d", address, tcp_port)
+        # Always print a clickable loopback URL (the usable browse URL),
+        # even when bound on 0.0.0.0.
+        logger.info("Serving at http://localhost:%d/  (bound on %s)",
+                    tcp_port, address)
+    if open_browser and tcp_port:
+        import webbrowser
+
+        url = f"http://localhost:{tcp_port}/"
+        server.io_loop.add_callback(lambda: webbrowser.open(url))
     try:
         server.start()
         server.io_loop.start()

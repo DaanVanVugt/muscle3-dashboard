@@ -121,6 +121,12 @@ def main() -> None:
     help="Add a run root for filesystem discovery (repeatable). "
     "Defaults to roots from ~/.config/m3dash/roots, or else $HOME.",
 )
+@click.option(
+    "--open-browser",
+    is_flag=True,
+    help="Open a browser at the TCP URL once serving (for a NoMachine / "
+    "Open OnDemand desktop session on the node itself; needs TCP).",
+)
 def serve(
     socket_path: Path,
     local_port: int,
@@ -130,6 +136,7 @@ def serve(
     no_socket: bool,
     ws_origins: tuple[str],
     roots: tuple[Path],
+    open_browser: bool,
 ) -> None:
     """Run the m3dash server (blocking)."""
     logging.basicConfig(
@@ -141,6 +148,8 @@ def serve(
         tcp_port = default_tcp_port()
     if no_socket and tcp_port is None:
         raise click.UsageError("--no-socket requires TCP (drop --no-tcp)")
+    if open_browser and not tcp_port:
+        raise click.UsageError("--open-browser needs a TCP port (drop --no-tcp)")
     from muscle3_dashboard.m3dash import app
 
     all_roots = app.load_roots()
@@ -162,7 +171,36 @@ def serve(
         tcp_port,
         address,
         local_port,
+        open_browser,
     )
+
+
+def _ensure_running(socket_path: Path, timeout: float = 15.0) -> bool:
+    """Start a socket-only server in the background unless already up.
+
+    Returns True once the socket is connectable, False on timeout.
+    Writes only to stderr / the serve log, never stdout, so it is safe
+    to call from ``pipe`` (whose stdout is the data channel).
+    """
+    if _socket_alive(socket_path):
+        return True
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    logfile = (STATE_DIR / "serve.log").open("ab")
+    subprocess.Popen(
+        [sys.executable, "-m", "muscle3_dashboard.m3dash.cli",
+         "serve", "--socket", str(socket_path), "--no-tcp"],
+        stdout=logfile,
+        stderr=logfile,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+        env=os.environ,
+    )
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _socket_alive(socket_path):
+            return True
+        time.sleep(0.5)
+    return False
 
 
 @main.command()
@@ -181,25 +219,8 @@ def ensure(socket_path: Path, timeout: float) -> None:
 
         command -v m3dash >/dev/null && m3dash ensure
     """
-    if _socket_alive(socket_path):
+    if _ensure_running(socket_path, timeout):
         return
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    logfile = (STATE_DIR / "serve.log").open("ab")
-    subprocess.Popen(
-        [sys.executable, "-m", "muscle3_dashboard.m3dash.cli",
-         "serve", "--socket", str(socket_path)],
-        stdout=logfile,
-        stderr=logfile,
-        stdin=subprocess.DEVNULL,
-        start_new_session=True,
-        env=os.environ,
-    )
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if _socket_alive(socket_path):
-            click.echo(f"m3dash started on {socket_path}", err=True)
-            return
-        time.sleep(0.5)
     raise click.ClickException(
         f"m3dash did not come up within {timeout}s, "
         f"see {STATE_DIR / 'serve.log'}"
@@ -260,7 +281,14 @@ def _shovel(src: socket.socket | int, dst: socket.socket | int) -> None:
     help="Multiplex many connections over this one channel (used by "
     "'m3dash connect'); otherwise carry a single connection.",
 )
-def pipe(socket_path: Path, mux: bool) -> None:
+@click.option(
+    "--ensure/--no-ensure",
+    default=True,
+    show_default=True,
+    help="Start the m3dash server first if it is not already running, "
+    "so 'm3dash connect' needs nothing pre-launched on the login node.",
+)
+def pipe(socket_path: Path, mux: bool, ensure: bool) -> None:
     """Bridge stdin/stdout to the m3dash unix socket (no output of its own).
 
     This is the remote end of ``m3dash connect``: it is run on the login
@@ -268,11 +296,14 @@ def pipe(socket_path: Path, mux: bool) -> None:
     ``--mux`` it is equivalent to ``socat - UNIX-CONNECT:<socket>`` (one
     connection); with ``--mux`` it speaks the framing protocol in
     :mod:`muscle3_dashboard.m3dash.mux` so a single channel carries every
-    browser connection.
+    browser connection. By default it also starts the server if needed,
+    so a single ``m3dash connect`` bootstraps everything.
     """
     # Expand ~ here rather than relying on the remote shell: connect()
     # shell-quotes the path, which would suppress tilde expansion.
     socket_path = socket_path.expanduser()
+    if ensure and not _socket_alive(socket_path):
+        _ensure_running(socket_path)
 
     def connect_backend() -> socket.socket:
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
