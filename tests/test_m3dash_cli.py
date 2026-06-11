@@ -52,6 +52,16 @@ def test_sshline_mentions_both_paths():
     assert "m3dash connect login01.example" in result.output  # bridge recipe
 
 
+def test_bridge_cmd_default_is_m3dash_pipe():
+    cmd = cli._bridge_cmd(None, "m3dash", "~/.m3dash.sock")
+    assert cmd == "m3dash pipe --socket '~/.m3dash.sock'"
+
+
+def test_bridge_cmd_remote_cmd_used_verbatim():
+    cmd = cli._bridge_cmd("ncat -U ~/.m3dash.sock", "m3dash", "~/.m3dash.sock")
+    assert cmd == "ncat -U ~/.m3dash.sock"
+
+
 def test_serve_open_browser_requires_tcp():
     result = CliRunner().invoke(cli.main, ["serve", "--no-tcp", "--open-browser"])
     assert result.exit_code != 0

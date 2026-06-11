@@ -311,6 +311,19 @@ def pipe(socket_path: Path, ensure: bool) -> None:
     sock.close()
 
 
+def _bridge_cmd(remote_cmd: str | None, remote_m3dash: str,
+                remote_socket: str) -> str:
+    """The shell command run on the login node to reach the socket.
+
+    With --remote-cmd it is used verbatim (e.g. ``ncat -U ~/.m3dash.sock``,
+    which needs nothing of m3dash on the remote PATH). Otherwise build a
+    ``m3dash pipe`` invocation (which can also auto-start the server).
+    """
+    if remote_cmd:
+        return remote_cmd
+    return f"{remote_m3dash} pipe --socket {shlex.quote(remote_socket)}"
+
+
 @main.command()
 @click.argument("ssh_host")
 @click.option(
@@ -333,16 +346,26 @@ def pipe(socket_path: Path, ensure: bool) -> None:
     help="ssh command (add options here, e.g. 'ssh -J bastion').",
 )
 @click.option(
+    "--remote-cmd",
+    default=None,
+    help="Remote command that connects to the socket and bridges "
+    "stdin/stdout, e.g. 'ncat -U ~/.m3dash.sock'. Needs nothing of "
+    "m3dash on the remote PATH (handy where it lives behind 'module "
+    "load'). Defaults to '<remote-m3dash> pipe'.",
+)
+@click.option(
     "--remote-m3dash",
     default="m3dash",
     show_default=True,
-    help="How to invoke m3dash on the login node.",
+    help="How to invoke m3dash on the login node (used unless "
+    "--remote-cmd is given).",
 )
 def connect(
     ssh_host: str,
     local_port: int,
     remote_socket: str,
     ssh_cmd: str,
+    remote_cmd: str | None,
     remote_m3dash: str,
 ) -> None:
     """Tunnel a local port to a login node's m3dash over ssh exec.
@@ -350,17 +373,23 @@ def connect(
     Use this when ``ssh -L`` fails with "administratively prohibited"
     (both TCP and unix-socket forwarding disabled): exec channels are not
     forwarding, so they stay allowed. Each browser connection spawns one
-    ``ssh <host> m3dash pipe``; set up an ssh ControlMaster so those
-    reuse a single authenticated connection instead of re-handshaking:
+    ssh command; set up an ssh ControlMaster so those reuse a single
+    authenticated connection instead of re-handshaking:
 
         Host <host>
             ControlMaster auto
             ControlPath ~/.ssh/cm-%r@%h:%p
             ControlPersist 10m
 
+    Where m3dash lives behind ``module load`` (so it is not on the PATH
+    of a non-interactive ssh shell), bridge with a stock tool instead and
+    start the server separately (``.bashrc``/cron)::
+
+        m3dash connect <host> --remote-cmd 'ncat -U ~/.m3dash.sock'
+
     Then browse http://localhost:<local-port>.
     """
-    rsock = shlex.quote(remote_socket)
+    bridge = _bridge_cmd(remote_cmd, remote_m3dash, remote_socket)
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind(("127.0.0.1", local_port))
@@ -372,11 +401,7 @@ def connect(
     )
 
     def handle(conn: socket.socket) -> None:
-        argv = [
-            *shlex.split(ssh_cmd),
-            ssh_host,
-            f"{remote_m3dash} pipe --socket {rsock}",
-        ]
+        argv = [*shlex.split(ssh_cmd), ssh_host, bridge]
         proc = subprocess.Popen(
             argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE
         )

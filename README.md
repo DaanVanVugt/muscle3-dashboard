@@ -57,17 +57,33 @@ other users on the same node.
 Some sites disable *both* TCP and unix-socket forwarding, so every
 `ssh -L`/`-R`/`-D` fails with `administratively prohibited`. ssh
 *exec* channels (running a command) are not forwarding and stay
-allowed, so m3dash tunnels over one:
+allowed, so `m3dash connect` tunnels over one: it listens on a local
+port and, per browser connection, runs an ssh command that connects to
+`~/.m3dash.sock` on the login node and shovels bytes over stdin/stdout.
+
+**Start the server** where the environment is set up. On a module-based
+cluster the m3dash command lives behind `module load`, which a
+non-interactive ssh shell does *not* run, so start it from an
+interactive context — add to `~/.bashrc`:
 
 ```bash
-# on your machine (needs only python3 + ssh; no socat):
-m3dash connect <login-node> --local-port 4333
+module load IMAS-MUSCLE3        # whatever puts m3dash on PATH
+command -v m3dash >/dev/null && m3dash ensure
 ```
 
-`connect` runs one `ssh <login-node> m3dash pipe` per browser
-connection (each connecting to the socket and shovelling bytes over
-stdin/stdout). Add an ssh ControlMaster so those reuse a single
-authenticated connection rather than re-handshaking each time:
+(for always-on without an interactive login, run the same from a
+`cron @reboot` or a `systemd --user` unit instead).
+
+**Bridge from your machine.** Because the remote shell is
+non-interactive, don't rely on `m3dash` being on its PATH — bridge with
+a stock tool that just talks to the socket (`ncat` is on most clusters):
+
+```bash
+m3dash connect <login-node> --remote-cmd 'ncat -U ~/.m3dash.sock'
+```
+
+Add an ssh ControlMaster so each connection reuses one authenticated
+session rather than re-handshaking:
 
 ```
 Host <login-node>
@@ -76,21 +92,15 @@ Host <login-node>
     ControlPersist 10m
 ```
 
-`pipe` starts the server itself if it is not already running, so a
-single `m3dash connect` bootstraps everything -- nothing needs to be
-pre-launched on the login node. Pass through a bastion with
-`--ssh 'ssh -J bastion'`, and target a non-default remote socket with
-`--remote-socket`.
+If `m3dash` *is* on the non-interactive PATH (e.g. a plain `pip`
+install), you can drop `--remote-cmd`; the default `m3dash pipe` bridge
+then also auto-starts the server, so a single `m3dash connect`
+bootstraps everything. Pass through a bastion with `--ssh 'ssh -J
+bastion'`, and target a non-default socket with `--remote-socket`.
 
-On the cluster, add to `~/.bashrc`:
-
-```bash
-command -v m3dash >/dev/null && m3dash ensure
-```
-
-Then every `ssh hpc` doubles as the tunnel and http://localhost:4333 is a
-permanent bookmark. If you forward a different local port, pass
-`--local-port` to `m3dash serve` so the websocket origin check matches.
+Then http://localhost:4333 is a permanent bookmark. If you use a
+different local port, pass `--local-port` to `m3dash serve` too so the
+websocket origin check matches.
 
 Other commands: `m3dash ls [--json]` lists discovered runs;
 `m3dash serve --tcp 5006` also serves on loopback TCP for debugging;
