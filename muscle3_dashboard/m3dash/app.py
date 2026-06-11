@@ -180,9 +180,9 @@ def index_app():
     def refresh(*_events) -> None:
         table.object = _runs_table_html(_index.runs)
         roots_md.object = (
-            "Scanned roots: "
+            f'<span title="edit {ROOTS_FILE}, one path per line, applied '
+            'on rescan" style="cursor:help">Scanned roots:</span> '
             + ", ".join(f"`{root}`" for root in _index.roots)
-            + f" — edit `{ROOTS_FILE}` (one path per line, applied on rescan)"
         )
         if _index.scanning:
             status.object = "*Scanning…*"
