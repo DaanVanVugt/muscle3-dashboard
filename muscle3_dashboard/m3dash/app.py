@@ -251,7 +251,8 @@ def run_app():
 
 
 def _add_logdy_tab(dash, run_dir: Path) -> None:
-    """If logdy is available, embed its web log explorer as a Logs tab.
+    """If logdy is available, embed its web log explorer in the log files
+    card.
 
     Reached through the same per-target subdomain proxy as actor UIs, so
     the remote browser can load the iframe over the one m3dash endpoint.
@@ -269,10 +270,22 @@ def _add_logdy_tab(dash, run_dir: Path) -> None:
         sizing_mode="stretch_width",
     )
     try:
-        dash.log_files_viewer.tabs.insert(0, ("Explore (logdy)", iframe))
-        dash.log_files_viewer.tabs.active = 0
+        viewer = dash.log_files_viewer
+        if hasattr(viewer, "tabs"):  # pre-restyle dashboard layout
+            viewer.tabs.insert(0, ("Explore (logdy)", iframe))
+            viewer.tabs.active = 0
+        else:  # single-view layout: collapsed card above the log view
+            viewer.card.insert(
+                0,
+                pn.Card(
+                    iframe,
+                    title="Explore (logdy)",
+                    sizing_mode="stretch_width",
+                    collapsed=True,
+                ),
+            )
     except Exception:  # noqa: BLE001 - never break the page over the explorer
-        logger.exception("Could not add the logdy tab")
+        logger.exception("Could not add the logdy explorer")
 
 
 def _component_web_urls(run_dir: Path) -> dict[str, str]:
