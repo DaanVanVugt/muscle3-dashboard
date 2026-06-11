@@ -15,14 +15,13 @@ def assets_path():
 
 
 def test_all_commands_registered():
-    # Guards against losing connect/pipe/sshline (e.g. a partial branch).
+    # Guards against losing connect/sshline (e.g. a partial branch).
     assert set(cli.main.commands) == {
         "serve",
         "ensure",
         "ls",
         "urls",
         "sshline",
-        "pipe",
         "connect",
     }
 
@@ -56,16 +55,6 @@ def test_sshline_mentions_both_paths():
     assert result.exit_code == 0, result.output
     assert "LocalForward" in result.output  # forwarding-allowed recipe
     assert "m3dash connect login01.example" in result.output  # bridge recipe
-
-
-def test_bridge_cmd_default_is_m3dash_pipe():
-    cmd = cli._bridge_cmd(None, "m3dash", "~/.m3dash.sock")
-    assert cmd == "m3dash pipe --socket '~/.m3dash.sock'"
-
-
-def test_bridge_cmd_remote_cmd_used_verbatim():
-    cmd = cli._bridge_cmd("ncat -U ~/.m3dash.sock", "m3dash", "~/.m3dash.sock")
-    assert cmd == "ncat -U ~/.m3dash.sock"
 
 
 def test_serve_open_browser_requires_tcp():

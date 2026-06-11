@@ -56,7 +56,12 @@ _STATUS_COLORS = {
 
 
 def load_roots() -> list[Path]:
-    """Load run roots from the config file, defaulting to the home dir."""
+    """Load run roots from the config file, defaulting to the home dir.
+
+    The file is the single place roots are configured: one path per
+    line; the scanner re-reads it on every rescan, so edits apply
+    without a restart.
+    """
     try:
         lines = ROOTS_FILE.read_text().splitlines()
         roots = [Path(li).expanduser() for li in lines if li.strip()]
@@ -65,16 +70,11 @@ def load_roots() -> list[Path]:
     return roots or [Path.home()]
 
 
-def save_roots(roots: list[Path]) -> None:
-    ROOTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    ROOTS_FILE.write_text("".join(f"{root}\n" for root in roots))
-
-
 class RunIndex:
     """Shared, periodically refreshed cache of discovered runs."""
 
-    def __init__(self, roots: list[Path]) -> None:
-        self.roots = roots
+    def __init__(self) -> None:
+        self.roots: list[Path] = load_roots()
         self.runs: list[Run] = []
         self.last_scan: datetime | None = None
         self.scan_seconds: float | None = None
@@ -92,20 +92,15 @@ class RunIndex:
     def request_rescan(self) -> None:
         self._wakeup.set()
 
-    def add_root(self, root: Path) -> None:
-        with self._lock:
-            if root not in self.roots:
-                self.roots.append(root)
-                save_roots(self.roots)
-        self.request_rescan()
-
     def _scan_loop(self) -> None:
         while True:
             self.scanning = True
             started = time.monotonic()
             try:
-                runs = discover_runs(list(self.roots))
+                roots = load_roots()
+                runs = discover_runs(roots)
                 with self._lock:
+                    self.roots = roots
                     self.runs = runs
             except Exception:
                 logger.exception("Run discovery failed")
@@ -175,21 +170,19 @@ def _runs_table_html(runs: list[Run]) -> str:
 
 
 def index_app():
-    """Landing page: run list, scan status, and run-root management."""
+    """Landing page: run list and scan status."""
     assert _index is not None
     table = pn.pane.HTML(_runs_table_html(_index.runs), sizing_mode="stretch_width")
     status = pn.pane.Markdown()
     roots_md = pn.pane.Markdown()
-    root_input = pn.widgets.TextInput(
-        placeholder="Add run root, e.g. /work/imas/shared", width=400
-    )
-    add_button = pn.widgets.Button(name="Add root", button_type="primary")
     rescan_button = pn.widgets.Button(name="Rescan now")
 
     def refresh(*_events) -> None:
         table.object = _runs_table_html(_index.runs)
-        roots_md.object = "Scanned roots: " + ", ".join(
-            f"`{root}`" for root in _index.roots
+        roots_md.object = (
+            "Scanned roots: "
+            + ", ".join(f"`{root}`" for root in _index.roots)
+            + f" — edit `{ROOTS_FILE}` (one path per line, applied on rescan)"
         )
         if _index.scanning:
             status.object = "*Scanning…*"
@@ -201,13 +194,6 @@ def index_app():
         else:
             status.object = "*First scan pending…*"
 
-    def add_root(_event) -> None:
-        if root_input.value:
-            _index.add_root(Path(root_input.value).expanduser())
-            root_input.value = ""
-        refresh()
-
-    add_button.on_click(add_root)
     rescan_button.on_click(lambda _event: _index.request_rescan())
     # Defer the periodic callback to session load: adding it during the
     # app-factory call makes Bokeh replay a SessionCallbackAdded event on
@@ -229,7 +215,7 @@ def index_app():
             pn.Column(
                 pn.Row(status, rescan_button),
                 table,
-                pn.Row(roots_md, root_input, add_button),
+                roots_md,
             )
         ],
     )
@@ -325,7 +311,6 @@ def _claim_socket(socket_path: Path) -> None:
 
 def serve(
     socket_path: Path | None,
-    roots: list[Path],
     websocket_origins: list[str],
     tcp_port: int | None = None,
     address: str = "127.0.0.1",
@@ -334,9 +319,11 @@ def serve(
 ) -> None:
     """Run the m3dash server (blocking).
 
+    Run roots come from the config file (see :func:`load_roots`),
+    re-read on every rescan.
+
     Args:
         socket_path: Unix socket to serve on (mode 0600), or None.
-        roots: Initial run roots for filesystem discovery.
         websocket_origins: Allowed websocket origins, e.g. localhost:4333
             for the conventional SSH LocalForward.
         tcp_port: Optional TCP port to also serve on (mainly for
@@ -348,7 +335,7 @@ def serve(
             desktop session running on the node itself). Needs tcp_port.
     """
     global _index, LOCAL_PORT
-    _index = RunIndex(roots)
+    _index = RunIndex()
     _index.start()
     LOCAL_PORT = local_port
 

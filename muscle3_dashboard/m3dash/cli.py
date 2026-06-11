@@ -6,12 +6,13 @@ Server side (login node):
   ``m3dash ls``       list discovered runs on the terminal.
   ``m3dash urls``     show served-UI URLs harvested from a run's logs.
   ``m3dash sshline``  print the ssh config block to reach this instance.
-  ``m3dash pipe``     bridge stdin/stdout to the unix socket (used by connect).
 
 Client side (your machine):
   ``m3dash connect``  listen on a local port and tunnel to a login node over
                       an ssh *exec* channel -- works even when ssh port and
-                      unix-socket forwarding are both prohibited.
+                      unix-socket forwarding are both prohibited. The remote
+                      end of the bridge is a stock tool (``ncat -U``), so
+                      nothing of m3dash is needed on the remote PATH.
 """
 
 import logging
@@ -115,14 +116,6 @@ def main() -> None:
     help="Extra allowed websocket origin, e.g. mynode.iter.org:5006 (repeatable).",
 )
 @click.option(
-    "--root",
-    "roots",
-    type=click.Path(exists=True, file_okay=False, path_type=Path),
-    multiple=True,
-    help="Add a run root for filesystem discovery (repeatable). "
-    "Defaults to roots from ~/.config/m3dash/roots, or else $HOME.",
-)
-@click.option(
     "--open-browser",
     is_flag=True,
     help="Open a browser at the TCP URL once serving (for a NoMachine / "
@@ -136,10 +129,14 @@ def serve(
     address: str,
     no_socket: bool,
     ws_origins: tuple[str, ...],
-    roots: tuple[Path, ...],
     open_browser: bool,
 ) -> None:
-    """Run the m3dash server (blocking)."""
+    """Run the m3dash server (blocking).
+
+    Run roots for filesystem discovery are read from
+    ~/.config/m3dash/roots (one path per line, default $HOME); edits are
+    picked up at the next rescan, no restart needed.
+    """
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
     )
@@ -153,12 +150,6 @@ def serve(
         raise click.UsageError("--open-browser needs a TCP port (drop --no-tcp)")
     from muscle3_dashboard.m3dash import app
 
-    all_roots = app.load_roots()
-    for root in roots:
-        root = root.expanduser().resolve()
-        if root not in all_roots:
-            all_roots.append(root)
-    app.save_roots(all_roots)
     origins = [f"localhost:{local_port}", f"127.0.0.1:{local_port}"]
     origins += list(ws_origins)
     if tcp_port and address != "127.0.0.1":
@@ -167,7 +158,6 @@ def serve(
         origins += [f"{host}:{tcp_port}", f"{socket.getfqdn()}:{tcp_port}"]
     app.serve(
         None if no_socket else socket_path,
-        all_roots,
         origins,
         tcp_port=tcp_port,
         address=address,
@@ -180,8 +170,7 @@ def _ensure_running(socket_path: Path, timeout: float = 15.0) -> bool:
     """Start a socket-only server in the background unless already up.
 
     Returns True once the socket is connectable, False on timeout.
-    Writes only to stderr / the serve log, never stdout, so it is safe
-    to call from ``pipe`` (whose stdout is the data channel).
+    Writes only to the serve log, never stdout/stderr.
     """
     if _socket_alive(socket_path):
         return True
@@ -275,62 +264,6 @@ def _shovel(src: socket.socket | int, dst: socket.socket | int) -> None:
 
 
 @main.command()
-@click.option(
-    "--socket",
-    "socket_path",
-    type=click.Path(path_type=Path),
-    default=DEFAULT_SOCKET,
-    show_default=True,
-)
-@click.option(
-    "--ensure/--no-ensure",
-    default=True,
-    show_default=True,
-    help="Start the m3dash server first if it is not already running, "
-    "so 'm3dash connect' needs nothing pre-launched on the login node.",
-)
-def pipe(socket_path: Path, ensure: bool) -> None:
-    """Bridge stdin/stdout to the m3dash unix socket (no output of its own).
-
-    This is the remote end of ``m3dash connect``: it is run on the login
-    node over an ssh exec channel, so it needs no forwarding. It is
-    equivalent to ``socat - UNIX-CONNECT:<socket>`` (one connection per
-    invocation). By default it also starts the server if needed, so a
-    single ``m3dash connect`` bootstraps everything.
-    """
-    # Expand ~ here rather than relying on the remote shell: connect()
-    # shell-quotes the path, which would suppress tilde expansion.
-    socket_path = socket_path.expanduser()
-    if ensure and not _socket_alive(socket_path):
-        _ensure_running(socket_path)
-
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    try:
-        sock.connect(str(socket_path))
-    except OSError as exc:
-        sys.stderr.write(f"m3dash pipe: cannot connect to {socket_path}: {exc}\n")
-        raise SystemExit(1) from exc
-    up = threading.Thread(
-        target=_shovel, args=(sys.stdin.buffer.fileno(), sock), daemon=True
-    )
-    up.start()
-    _shovel(sock, sys.stdout.buffer.fileno())  # blocks until socket EOF
-    sock.close()
-
-
-def _bridge_cmd(remote_cmd: str | None, remote_m3dash: str, remote_socket: str) -> str:
-    """The shell command run on the login node to reach the socket.
-
-    With --remote-cmd it is used verbatim (e.g. ``ncat -U ~/.m3dash.sock``,
-    which needs nothing of m3dash on the remote PATH). Otherwise build a
-    ``m3dash pipe`` invocation (which can also auto-start the server).
-    """
-    if remote_cmd:
-        return remote_cmd
-    return f"{remote_m3dash} pipe --socket {shlex.quote(remote_socket)}"
-
-
-@main.command()
 @click.argument("ssh_host")
 @click.option(
     "--local-port",
@@ -355,15 +288,8 @@ def _bridge_cmd(remote_cmd: str | None, remote_m3dash: str, remote_socket: str) 
     "--remote-cmd",
     default=None,
     help="Remote command that connects to the socket and bridges "
-    "stdin/stdout, e.g. 'ncat -U ~/.m3dash.sock'. Needs nothing of "
-    "m3dash on the remote PATH (handy where it lives behind 'module "
-    "load'). Defaults to '<remote-m3dash> pipe'.",
-)
-@click.option(
-    "--remote-m3dash",
-    default="m3dash",
-    show_default=True,
-    help="How to invoke m3dash on the login node (used unless --remote-cmd is given).",
+    "stdin/stdout. Defaults to 'ncat -U <remote-socket>', which needs "
+    "nothing of m3dash on the remote PATH.",
 )
 def connect(
     ssh_host: str,
@@ -371,30 +297,28 @@ def connect(
     remote_socket: str,
     ssh_cmd: str,
     remote_cmd: str | None,
-    remote_m3dash: str,
 ) -> None:
     """Tunnel a local port to a login node's m3dash over ssh exec.
 
     Use this when ``ssh -L`` fails with "administratively prohibited"
     (both TCP and unix-socket forwarding disabled): exec channels are not
-    forwarding, so they stay allowed. Each browser connection spawns one
-    ssh command; set up an ssh ControlMaster so those reuse a single
-    authenticated connection instead of re-handshaking:
+    forwarding, so they stay allowed. The remote end is plain
+    ``ncat -U <socket>``, so the server must already be running there --
+    start it from ``~/.bashrc`` (``m3dash ensure``) or cron. Each browser
+    connection spawns one ssh command; set up an ssh ControlMaster so
+    those reuse a single authenticated connection instead of
+    re-handshaking:
 
+    \b
         Host <host>
             ControlMaster auto
             ControlPath ~/.ssh/cm-%r@%h:%p
             ControlPersist 10m
 
-    Where m3dash lives behind ``module load`` (so it is not on the PATH
-    of a non-interactive ssh shell), bridge with a stock tool instead and
-    start the server separately (``.bashrc``/cron)::
-
-        m3dash connect <host> --remote-cmd 'ncat -U ~/.m3dash.sock'
-
     Then browse http://localhost:<local-port>.
     """
-    bridge = _bridge_cmd(remote_cmd, remote_m3dash, remote_socket)
+    # NB the remote shell expands ~ in the default socket path; don't quote.
+    bridge = remote_cmd or f"ncat -U {remote_socket}"
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind(("127.0.0.1", local_port))
