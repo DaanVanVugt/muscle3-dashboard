@@ -87,7 +87,18 @@ class Dashboard(pn.viewable.Viewer):
         """Set up background tasks when a new session is created"""
         # Update log files
         # TODO: use watchfiles to subscribe to notifications instead of polling?
-        pn.state.add_periodic_callback(self.data_manager.update, period=1000)
+        # Register the periodic callback once the session has loaded rather
+        # than during construction: adding it here (mid-construction) makes
+        # Bokeh replay a SessionCallbackAdded event on the first document
+        # unhold, which raises "a callback ... has already been added with
+        # this ID". Deferring to onload binds it to the live session cleanly.
+        def _start_polling() -> None:
+            pn.state.add_periodic_callback(self.data_manager.update, period=1000)
+
+        if pn.state.curdoc:
+            pn.state.onload(_start_polling)
+        else:
+            _start_polling()
 
     def __panel__(self):
         return self.template

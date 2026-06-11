@@ -217,7 +217,18 @@ def index_app():
 
     add_button.on_click(add_root)
     rescan_button.on_click(lambda _event: _index.request_rescan())
-    pn.state.add_periodic_callback(refresh, period=VIEW_REFRESH_MILLISECONDS)
+    # Defer the periodic callback to session load: adding it during the
+    # app-factory call makes Bokeh replay a SessionCallbackAdded event on
+    # the first document unhold, raising "a callback ... has already been
+    # added with this ID" in a real browser session.
+    if pn.state.curdoc:
+        pn.state.onload(
+            lambda: pn.state.add_periodic_callback(
+                refresh, period=VIEW_REFRESH_MILLISECONDS
+            )
+        )
+    else:
+        pn.state.add_periodic_callback(refresh, period=VIEW_REFRESH_MILLISECONDS)
     refresh()
 
     return pn.template.VanillaTemplate(
