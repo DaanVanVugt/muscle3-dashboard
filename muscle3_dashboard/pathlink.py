@@ -1,13 +1,17 @@
 import html
 from pathlib import Path
 
-# Copies the path to the clipboard and briefly shows "✓ copied" in place.
+# Copies the path to the clipboard and briefly shows "✓ copied" in place,
+# keeping the element at its original width so the layout doesn't jump.
 # navigator.clipboard only exists in secure contexts (https / localhost);
 # fall back to a hidden textarea + execCommand for plain-http access.
 _COPY_JS = (
     "const el=this;"
-    "const done=()=>{const t=el.textContent;el.textContent='\\u2713 copied';"
-    "setTimeout(()=>{el.textContent=t},1200);};"
+    "const done=()=>{const t=el.textContent;const w=el.offsetWidth;"
+    "el.style.display='inline-block';el.style.width=w+'px';"
+    "el.style.textAlign='center';el.textContent='\\u2713 copied';"
+    "setTimeout(()=>{el.textContent=t;el.style.display='';"
+    "el.style.width='';el.style.textAlign='';},1200);};"
     "const p=el.dataset.path;"
     "if(navigator.clipboard){navigator.clipboard.writeText(p).then(done);}"
     "else{const a=document.createElement('textarea');a.value=p;"
