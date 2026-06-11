@@ -95,6 +95,9 @@ class ManagerLogAnalyzer(BaseLogAnalyzer):
             "CRITICAL": 0,
             "unknown": 0,
         }
+        self.messages_per_level_by_source: dict[str, dict[str, int]] = {}
+        """Number of parsed messages per log level, per source (the
+        muscle_manager itself or a remote component)"""
         self._lines_read = 0
         self._lines_parsed = 0
         super().__init__(logfile)
@@ -122,6 +125,10 @@ class ManagerLogAnalyzer(BaseLogAnalyzer):
             if loglevel not in self._messages_per_level:
                 loglevel = "unknown"
             self._messages_per_level[loglevel] += 1
+            per_source = self.messages_per_level_by_source.setdefault(
+                match.group("component"), dict.fromkeys(self._messages_per_level, 0)
+            )
+            per_source[loglevel] += 1
 
         # Update externally visible state
         self.param.update(
@@ -177,6 +184,19 @@ class ManagerLogAnalyzer(BaseLogAnalyzer):
             }
             for component in self.components.values()
         ).set_index("name")
+
+    @property
+    def simulation_state(self) -> str:
+        """Overall run state derived from per-component data, one of
+        'not started', 'running', 'finished' or 'failed'."""
+        components = self.components.values()
+        if any(c.exit_code not in ("", "0") for c in components):
+            return "failed"
+        if components and all(c.status is ComponentStatus.FINISHED for c in components):
+            return "finished"
+        if all(c.status is ComponentStatus.NOT_STARTED for c in components):
+            return "not started"
+        return "running"
 
     @property
     def status_message(self):
