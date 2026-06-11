@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 import pandas as pd
 import panel as pn
 
@@ -20,21 +22,32 @@ def _count_html(level: str, count: int) -> str:
 
 class LogMessagesTableViewer(pn.viewable.Viewer):
     """Panel component showing the number of log messages per log level,
-    per source (the muscle_manager itself and each remote component)"""
+    per source (the muscle_manager itself and each remote component).
 
-    def __init__(self, data_manager: DataManager) -> None:
+    Pass ``on_select`` to be notified (with the source name) when a row
+    is clicked, e.g. to show that source's log file.
+    """
+
+    def __init__(
+        self,
+        data_manager: DataManager,
+        on_select: Callable[[str], None] | None = None,
+    ) -> None:
         super().__init__()
         self.data_manager = data_manager
+        self.on_select = on_select
 
         # NB: no frozen_rows -- freezing rows renders them in a separate
         # layer offset from the headers.
         self.log_table = pn.widgets.Tabulator(
             self._to_dataframe(),
             disabled=True,
+            selectable=1,
             show_index=True,
             layout="fit_data_table",
             formatters={level: {"type": "html"} for level in _LEVELS},
         )
+        self.log_table.on_click(self._handle_click)
 
         self.card = pn.Card(
             self.log_table,
@@ -67,6 +80,11 @@ class LogMessagesTableViewer(pn.viewable.Viewer):
             self.log_table.patch(df)
         else:
             self.log_table.value = df
+
+    def _handle_click(self, event) -> None:
+        if self.on_select is None:
+            return
+        self.on_select(str(self.log_table.value.index[event.row]))
 
     def __panel__(self):
         return self.card

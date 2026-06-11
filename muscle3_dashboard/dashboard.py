@@ -75,9 +75,12 @@ class Dashboard(pn.viewable.Viewer):
         self.status_table_viewer = StatusTableViewer(
             self.data_manager,
             web_urls=web_urls,
-            on_select=lambda component: self.log_files_viewer.show_component(component),
+            on_select=lambda component: self.log_files_viewer.show_source(component),
         )
-        self.log_messages_table_viewer = LogMessagesTableViewer(self.data_manager)
+        self.log_messages_table_viewer = LogMessagesTableViewer(
+            self.data_manager,
+            on_select=lambda source: self.log_files_viewer.show_source(source),
+        )
         self.ymmsl_graph_viewer = YmmslGraphViewer(self.data_manager)
         self.log_files_viewer = LogFilesViewer(self.data_manager)
         self.crash_analysis_viewer = CrashAnalysisViewer(self.data_manager)
