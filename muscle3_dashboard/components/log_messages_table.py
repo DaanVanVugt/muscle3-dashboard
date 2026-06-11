@@ -23,16 +23,15 @@ class LogMessagesTableViewer(pn.viewable.Viewer):
             }
         ).set_index("component")
 
+        # NB: no frozen_rows -- freezing the single row renders it in a
+        # separate layer offset from the headers. The old lowercase
+        # `sorters` also never matched the uppercase columns; drop them.
         self.log_table = pn.widgets.Tabulator(
             logmessages,
-            frozen_rows=[-1],
             disabled=True,
-            selectable=1,
-            sizing_mode="stretch_both",
-            sorters=[
-                {"field": name, "dir": "desc"}
-                for name in ("critical", "error", "warning", "info", "debug")
-            ],
+            show_index=True,
+            layout="fit_data_table",
+            sizing_mode="stretch_width",
         )
 
         self.card = pn.Card(
