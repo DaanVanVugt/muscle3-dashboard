@@ -30,7 +30,25 @@ class LogFilesViewer(pn.viewable.Viewer):
             sizing_mode="stretch_width",
             max_height=800,
         )
-        self.card = pn.Card(self.tabs, margin=CARD_MARGIN, title="Log files")
+        # Last-update timestamp shown top-right of the card header.
+        self.last_update_pane = pn.pane.HTML(
+            self._last_update_html(), align="center",
+            styles={"color": "#888", "font-size": "0.85em"},
+        )
+        self.card = pn.Card(
+            self.tabs,
+            margin=CARD_MARGIN,
+            header=pn.Row(
+                pn.pane.HTML("<b>Log files</b>", align="center"),
+                pn.HSpacer(),
+                self.last_update_pane,
+                sizing_mode="stretch_width",
+            ),
+        )
+
+    def _last_update_html(self) -> str:
+        ts = self.data_manager.logs_last_updated
+        return f"updated {ts.strftime('%H:%M:%S')}" if ts else ""
 
     def components_tab_pane(self) -> pn.Column:
         """Tab for separate component logs"""
@@ -86,6 +104,7 @@ class LogFilesViewer(pn.viewable.Viewer):
 
     def update(self, event) -> None:
         """Method to update log file viewer from listener"""
+        self.last_update_pane.object = self._last_update_html()
         for line in self.data_manager.manager_log_lines[-MAX_LINES:]:
             self.manager_terminal.write(line)
 

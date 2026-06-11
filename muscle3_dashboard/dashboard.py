@@ -8,7 +8,6 @@ import panel as pn
 from muscle3_dashboard.components.crash_analysis import CrashAnalysisViewer
 from muscle3_dashboard.components.log_files import LogFilesViewer
 from muscle3_dashboard.components.log_messages_table import LogMessagesTableViewer
-from muscle3_dashboard.components.overview import OverviewViewer
 from muscle3_dashboard.components.profiling_information import (
     ProfilingInformationViewer,
 )
@@ -16,7 +15,20 @@ from muscle3_dashboard.components.status_table import StatusTableViewer
 from muscle3_dashboard.components.ymmsl_graph import YmmslGraphViewer
 from muscle3_dashboard.data_manager import DataManager
 
-pn.extension("tabulator")
+# Material design gives cleaner cards/typography than the default.
+pn.extension("tabulator", design="material", sizing_mode="stretch_width")
+
+#: Status-dot colours: green running, grey finished, red failed.
+_RUNNING, _FINISHED, _FAILED = "#2e7d32", "#757575", "#d32f2f"
+
+
+def _status_color(status_message: str) -> str:
+    msg = (status_message or "").lower()
+    if any(word in msg for word in ("error", "crash", "fail")):
+        return _FAILED
+    if any(word in msg for word in ("finish", "complete", "success", "done")):
+        return _FINISHED
+    return _RUNNING
 
 
 @lru_cache(maxsize=1)
@@ -76,7 +88,6 @@ class Dashboard(pn.viewable.Viewer):
 
         self.data_manager = DataManager(run_folder)
 
-        self.overview_viewer = OverviewViewer(self.data_manager)
         self.status_table_viewer = StatusTableViewer(
             self.data_manager, web_urls=web_urls
         )
@@ -88,30 +99,26 @@ class Dashboard(pn.viewable.Viewer):
             self.data_manager
         )
 
-        # Header strip: run name + copyable / openable run directory.
-        self.template.header.append(
-            pn.pane.HTML(
-                f"<b>{html.escape(run_folder.name)}</b> &nbsp; "
-                f"{_path_html(run_folder)}",
-                sizing_mode="stretch_width",
-            )
+        # Header strip: a status dot (green = running) next to the run
+        # name, then the copyable / openable run directory.
+        self.header_pane = pn.pane.HTML(
+            self._header_html(""), sizing_mode="stretch_width"
         )
+        self.template.header.append(self.header_pane)
+        self.data_manager.param.watch(self._update_header, "data_updated")
 
-        # Single page, top to bottom: overview, then the component status
-        # table beside the simulation graph (linked on hover, nodes
-        # coloured by status), then logs, then crash analysis.
+        # Single page, top to bottom: the component status table beside the
+        # simulation graph (to be linked on hover, nodes coloured by status
+        # once the ymmsl2svg graph lands), then all log messages, then log
+        # files, then crash analysis.
         self.template.main.append(
             pn.Column(
-                pn.Row(
-                    self.overview_viewer,
-                    self.log_messages_table_viewer,
-                    height=200,
-                ),
                 pn.Row(
                     self.status_table_viewer,
                     self.ymmsl_graph_viewer,
                     sizing_mode="stretch_width",
                 ),
+                self.log_messages_table_viewer,
                 self.log_files_viewer,
                 self.crash_analysis_viewer,
                 sizing_mode="stretch_width",
@@ -119,6 +126,20 @@ class Dashboard(pn.viewable.Viewer):
         )
 
         self.session_created()
+
+    def _header_html(self, status_message: str) -> str:
+        color = _status_color(status_message)
+        tip = html.escape(status_message or "running")
+        return (
+            f'<span style="color:{color};font-size:1.1em" title="{tip}">'
+            f"&#x25cf;</span> "
+            f"<b>{html.escape(self.run_folder.name)}</b> &nbsp; "
+            f"{_path_html(self.run_folder)}"
+        )
+
+    def _update_header(self, event) -> None:
+        msg = self.data_manager.manager_log_analyzer.status_message
+        self.header_pane.object = self._header_html(msg)
 
     def session_created(self) -> None:
         """Set up background tasks when a new session is created"""
