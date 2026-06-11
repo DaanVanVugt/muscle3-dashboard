@@ -64,14 +64,10 @@ allowed, so m3dash tunnels over one:
 m3dash connect <login-node> --local-port 4333
 ```
 
-By default `connect` runs a single `ssh <login-node> m3dash pipe
---mux` and multiplexes every browser connection over that one channel
-(one authentication, no per-connection ssh setup) -- so it works well
-even without an ssh ControlMaster.
-
-With `--no-mux` it instead runs one `ssh <login-node> m3dash pipe` per
-browser connection; for that mode add an ssh ControlMaster so each
-connection reuses one authenticated session:
+`connect` runs one `ssh <login-node> m3dash pipe` per browser
+connection (each connecting to the socket and shovelling bytes over
+stdin/stdout). Add an ssh ControlMaster so those reuse a single
+authenticated connection rather than re-handshaking each time:
 
 ```
 Host <login-node>
@@ -80,8 +76,11 @@ Host <login-node>
     ControlPersist 10m
 ```
 
-Pass through a bastion with `--ssh 'ssh -J bastion'`, and target a
-non-default remote socket with `--remote-socket`.
+`pipe` starts the server itself if it is not already running, so a
+single `m3dash connect` bootstraps everything -- nothing needs to be
+pre-launched on the login node. Pass through a bastion with
+`--ssh 'ssh -J bastion'`, and target a non-default remote socket with
+`--remote-socket`.
 
 On the cluster, add to `~/.bashrc`:
 
