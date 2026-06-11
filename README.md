@@ -32,17 +32,20 @@ processes, and a filesystem scan of configurable run roots, default
 per-user unix socket: `~/.m3dash.sock` (mode 0600).
 
 On your own machine, add to `~/.ssh/config`. The `%r` token expands to
-the remote username, so the same line works for every user:
+the remote username, so the same line works for every user (ITER SDCC
+example):
 
 ```
-Host hpc
-    HostName <login-node-fqdn>
+Host sdcc1
+    HostName sdcc1.iter.org
     LocalForward 127.0.0.1:4333 /home/ITER/%r/.m3dash.sock
     ExitOnForwardFailure no
 ```
 
 Pin one specific login node: unix sockets are host-local even on a
 shared filesystem, so sshd and m3dash must be on the same machine.
+(On SDCC, where forwarding is prohibited, use `m3dash connect` instead
+— see "When all forwarding is prohibited" below.)
 
 Many sites prohibit unix-socket forwarding (the symptom is
 `administratively prohibited: open failed` while normal `-L` port

@@ -133,50 +133,43 @@ def _age(timestamp: datetime | None) -> str:
 
 
 def _runs_table_html(runs: list[Run]) -> str:
-    """Render the run list as an HTML table with links to /run."""
+    """Render the run list as an HTML table with links to /run.
+
+    Per-component web UIs are shown on the run page (in the component
+    status table), not here. The run-directory cell copies its full path
+    to the clipboard on click.
+    """
     rows = []
     for run in runs:
         query = urllib.parse.urlencode({"dir": str(run.run_dir)})
         color = _STATUS_COLORS[run.status]
-        via = ", ".join(run.sources)
         if run.job_id:
             ref = f"job {run.job_id}"
         elif run.pid:
             ref = f"pid {run.pid}"
         else:
             ref = ""
-        uis = []
-        for u in run.web_urls:
-            if u["resolved"]:
-                uis.append(
-                    f'<a href="{html.escape(u["reachable_url"])}" '
-                    f'target="_blank">{html.escape(u["instance"])}</a>'
-                )
-            else:
-                uis.append(
-                    f'<span title="node unresolved: {html.escape(u["original"])}">'
-                    f'{html.escape(u["instance"])} (?)</span>'
-                )
+        run_dir = html.escape(str(run.run_dir))
         rows.append(
             f"<tr>"
             f'<td><a href="run?{query}" target="_blank">'
             f"<b>{html.escape(run.name)}</b></a></td>"
             f'<td><span style="color:{color}">{run.status.value}</span></td>'
             f"<td>{_age(run.last_updated)}</td>"
-            f"<td>{html.escape(via)}</td>"
             f"<td>{html.escape(ref)}</td>"
-            f"<td>{', '.join(uis)}</td>"
-            f'<td style="color:#888;font-size:0.85em">'
-            f"{html.escape(str(run.run_dir))}</td>"
+            f'<td class="m3dpath" title="click to copy" '
+            f'onclick="navigator.clipboard.writeText(this.dataset.path)" '
+            f'data-path="{run_dir}" '
+            f'style="color:#888;font-size:0.85em;cursor:pointer">'
+            f"{run_dir}</td>"
             f"</tr>"
         )
     if not rows:
-        rows = ['<tr><td colspan="7"><i>No runs found yet.</i></td></tr>']
+        rows = ['<tr><td colspan="5"><i>No runs found yet.</i></td></tr>']
     return (
         '<table style="border-spacing:12px 4px">'
         "<tr><th>Run</th><th>Status</th><th>Updated</th>"
-        "<th>Found via</th><th>Job/PID</th><th>Web UIs</th>"
-        "<th>Run directory</th></tr>"
+        "<th>Job/PID</th><th>Run directory</th></tr>"
         + "".join(rows)
         + "</table>"
     )
