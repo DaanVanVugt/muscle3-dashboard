@@ -42,6 +42,8 @@ def default_tcp_port() -> int:
     port is connectable by other users on the same node.
     """
     return 20000 + os.getuid() % 10000
+
+
 DEFAULT_LOCAL_PORT = 4333
 STATE_DIR = Path("~/.local/state/m3dash").expanduser()
 
@@ -110,8 +112,7 @@ def main() -> None:
     "--ws-origin",
     "ws_origins",
     multiple=True,
-    help="Extra allowed websocket origin, e.g. mynode.iter.org:5006 "
-    "(repeatable).",
+    help="Extra allowed websocket origin, e.g. mynode.iter.org:5006 (repeatable).",
 )
 @click.option(
     "--root",
@@ -187,8 +188,15 @@ def _ensure_running(socket_path: Path, timeout: float = 15.0) -> bool:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     logfile = (STATE_DIR / "serve.log").open("ab")
     subprocess.Popen(
-        [sys.executable, "-m", "muscle3_dashboard.m3dash.cli",
-         "serve", "--socket", str(socket_path), "--no-tcp"],
+        [
+            sys.executable,
+            "-m",
+            "muscle3_dashboard.m3dash.cli",
+            "serve",
+            "--socket",
+            str(socket_path),
+            "--no-tcp",
+        ],
         stdout=logfile,
         stderr=logfile,
         stdin=subprocess.DEVNULL,
@@ -222,8 +230,7 @@ def ensure(socket_path: Path, timeout: float) -> None:
     if _ensure_running(socket_path, timeout):
         return
     raise click.ClickException(
-        f"m3dash did not come up within {timeout}s, "
-        f"see {STATE_DIR / 'serve.log'}"
+        f"m3dash did not come up within {timeout}s, see {STATE_DIR / 'serve.log'}"
     )
 
 
@@ -302,7 +309,7 @@ def pipe(socket_path: Path, ensure: bool) -> None:
         sock.connect(str(socket_path))
     except OSError as exc:
         sys.stderr.write(f"m3dash pipe: cannot connect to {socket_path}: {exc}\n")
-        raise SystemExit(1)
+        raise SystemExit(1) from exc
     up = threading.Thread(
         target=_shovel, args=(sys.stdin.buffer.fileno(), sock), daemon=True
     )
@@ -311,8 +318,7 @@ def pipe(socket_path: Path, ensure: bool) -> None:
     sock.close()
 
 
-def _bridge_cmd(remote_cmd: str | None, remote_m3dash: str,
-                remote_socket: str) -> str:
+def _bridge_cmd(remote_cmd: str | None, remote_m3dash: str, remote_socket: str) -> str:
     """The shell command run on the login node to reach the socket.
 
     With --remote-cmd it is used verbatim (e.g. ``ncat -U ~/.m3dash.sock``,
@@ -357,8 +363,7 @@ def _bridge_cmd(remote_cmd: str | None, remote_m3dash: str,
     "--remote-m3dash",
     default="m3dash",
     show_default=True,
-    help="How to invoke m3dash on the login node (used unless "
-    "--remote-cmd is given).",
+    help="How to invoke m3dash on the login node (used unless --remote-cmd is given).",
 )
 def connect(
     ssh_host: str,
@@ -402,9 +407,7 @@ def connect(
 
     def handle(conn: socket.socket) -> None:
         argv = [*shlex.split(ssh_cmd), ssh_host, bridge]
-        proc = subprocess.Popen(
-            argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE
-        )
+        proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
         assert proc.stdin and proc.stdout
         t = threading.Thread(
             target=_shovel, args=(conn, proc.stdin.fileno()), daemon=True
@@ -445,9 +448,7 @@ def ls(as_json: bool, roots: tuple[Path]) -> None:
     for run in runs:
         ref = str(run.job_id or run.pid or "")
         updated = str(run.last_updated or "")[:16]
-        click.echo(
-            f"{run.status.value:9} {updated:16} {ref:>8}  {run.run_dir}"
-        )
+        click.echo(f"{run.status.value:9} {updated:16} {ref:>8}  {run.run_dir}")
 
 
 @main.command()

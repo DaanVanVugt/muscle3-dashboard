@@ -55,9 +55,7 @@ MAX_SCAN_DEPTH = 8
 _TAIL_BYTES = 8192
 
 _SUCCESS_RE = re.compile(r"The simulation finished without error\.")
-_FAILURE_RE = re.compile(
-    r"crashed|finished with exit code [1-9]|Instantiator crashed"
-)
+_FAILURE_RE = re.compile(r"crashed|finished with exit code [1-9]|Instantiator crashed")
 
 
 class RunStatus(Enum):
@@ -147,9 +145,7 @@ def _scan_tree(root: Path, max_depth: int = MAX_SCAN_DEPTH) -> list[Path]:
 
 def _run_command(args: list[str], timeout: float = 10.0) -> str | None:
     try:
-        result = subprocess.run(
-            args, capture_output=True, text=True, timeout=timeout
-        )
+        result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired):
         return None
     if result.returncode != 0:
@@ -217,9 +213,7 @@ def _manager_run_dir(pid: int, cmdline: str) -> Path | None:
 
 def scan_processes() -> list[Run]:
     """Discover runs of muscle_manager processes on this host."""
-    out = _run_command(
-        ["pgrep", "--uid", getpass.getuser(), "-af", "muscle_manager"]
-    )
+    out = _run_command(["pgrep", "--uid", getpass.getuser(), "-af", "muscle_manager"])
     if out is None:
         return []
     runs = []
@@ -277,9 +271,7 @@ def discover_runs(roots: list[Path]) -> list[Run]:
             merged[key] = run
             continue
         existing = merged[key]
-        existing.sources.extend(
-            s for s in run.sources if s not in existing.sources
-        )
+        existing.sources.extend(s for s in run.sources if s not in existing.sources)
         existing.job_id = existing.job_id or run.job_id
         existing.job_state = existing.job_state or run.job_state
         existing.pid = existing.pid or run.pid
@@ -295,12 +287,8 @@ def discover_runs(roots: list[Path]) -> list[Run]:
             fallback = socket.gethostname() if "process" in run.sources else None
             from muscle3_dashboard.m3dash.harvest import harvest_run
 
-            run.web_urls = [
-                u.to_dict() for u in harvest_run(run.run_dir, fallback)
-            ]
-    runs.sort(
-        key=lambda r: r.last_updated or datetime.fromtimestamp(0), reverse=True
-    )
+            run.web_urls = [u.to_dict() for u in harvest_run(run.run_dir, fallback)]
+    runs.sort(key=lambda r: r.last_updated or datetime.fromtimestamp(0), reverse=True)
     return runs
 
 

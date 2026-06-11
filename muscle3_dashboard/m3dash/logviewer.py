@@ -66,10 +66,15 @@ def launch(run_dir: Path) -> int | None:
             return None
         port = _free_port()
         argv = [
-            binary, "follow", *files,
-            "--port", str(port),
-            "--ui-ip", "127.0.0.1",
-            "--no-updates", "--no-analytics",
+            binary,
+            "follow",
+            *files,
+            "--port",
+            str(port),
+            "--ui-ip",
+            "127.0.0.1",
+            "--no-updates",
+            "--no-analytics",
             *shlex.split(os.environ.get("M3DASH_LOGDY_ARGS", "")),
         ]
         try:
@@ -84,6 +89,10 @@ def launch(run_dir: Path) -> int | None:
             logger.exception("Could not start logdy")
             return None
         _servers[key] = (proc, port)
-        logger.info("logdy serving %d log file(s) for %s on 127.0.0.1:%d",
-                    len(files), key.name, port)
+        logger.info(
+            "logdy serving %d log file(s) for %s on 127.0.0.1:%d",
+            len(files),
+            key.name,
+            port,
+        )
         return port

@@ -120,9 +120,7 @@ def _instance_base(instance_id: str) -> str:
     return instance_id.split("[", 1)[0]
 
 
-def harvest_run(
-    run_dir: Path, fallback_node: str | None = None
-) -> list[HarvestedURL]:
+def harvest_run(run_dir: Path, fallback_node: str | None = None) -> list[HarvestedURL]:
     """Find served-UI URLs in a run's instance logs and resolve nodes."""
     instances_dir = run_dir / "instances"
     if not instances_dir.is_dir():

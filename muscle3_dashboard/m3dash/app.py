@@ -169,9 +169,7 @@ def _runs_table_html(runs: list[Run]) -> str:
     return (
         '<table style="border-spacing:12px 4px">'
         "<tr><th>Run</th><th>Status</th><th>Updated</th>"
-        "<th>Job/PID</th><th>Run directory</th></tr>"
-        + "".join(rows)
-        + "</table>"
+        "<th>Job/PID</th><th>Run directory</th></tr>" + "".join(rows) + "</table>"
     )
 
 
@@ -382,8 +380,7 @@ def serve(
     if tcp_port:
         # Always print a clickable loopback URL (the usable browse URL),
         # even when bound on 0.0.0.0.
-        logger.info("Serving at http://localhost:%d/  (bound on %s)",
-                    tcp_port, address)
+        logger.info("Serving at http://localhost:%d/  (bound on %s)", tcp_port, address)
     if open_browser and tcp_port:
         import webbrowser
 

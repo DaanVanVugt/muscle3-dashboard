@@ -17,7 +17,13 @@ def assets_path():
 def test_all_commands_registered():
     # Guards against losing connect/pipe/sshline (e.g. a partial branch).
     assert set(cli.main.commands) == {
-        "serve", "ensure", "ls", "urls", "sshline", "pipe", "connect",
+        "serve",
+        "ensure",
+        "ls",
+        "urls",
+        "sshline",
+        "pipe",
+        "connect",
     }
 
 
@@ -48,7 +54,7 @@ def test_urls_on_synthetic_run(tmp_path):
 def test_sshline_mentions_both_paths():
     result = CliRunner().invoke(cli.main, ["sshline", "--host", "login01.example"])
     assert result.exit_code == 0, result.output
-    assert "LocalForward" in result.output          # forwarding-allowed recipe
+    assert "LocalForward" in result.output  # forwarding-allowed recipe
     assert "m3dash connect login01.example" in result.output  # bridge recipe
 
 

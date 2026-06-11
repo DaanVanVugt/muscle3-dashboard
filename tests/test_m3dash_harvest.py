@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import pytest
-
 from muscle3_dashboard.m3dash import harvest
 
 
