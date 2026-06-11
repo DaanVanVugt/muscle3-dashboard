@@ -14,8 +14,8 @@ from muscle3_dashboard.loganalyzer.base import BaseLogAnalyzer
 _LOGPARSER = re.compile(
     r"""
     ^(?P<component>\S+)         # Source of log message: muscle_manager or remote component
-    \ (?P<datetime>\S+\ \S+)    # Lazy way to capture the date + time
-    \ (?P<loglevel>\S+)         # Log level: INFO / DEBUG / etc.
+    \ +(?P<datetime>\S+\ \S+)   # Date + time; the source column is padded, allow several spaces
+    \ +(?P<loglevel>\S+)        # Log level: INFO / DEBUG / etc.
     \ +(?P<name>\S+):           # Python module for manager logs, or remote component name
     \s*(?P<message>.*)$         # Log message
     """,  # noqa: E501

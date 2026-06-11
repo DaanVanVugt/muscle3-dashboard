@@ -75,11 +75,11 @@ class Dashboard(pn.viewable.Viewer):
         self.status_table_viewer = StatusTableViewer(
             self.data_manager,
             web_urls=web_urls,
-            on_select=lambda component: self.log_files_viewer.show_source(component),
+            on_select=self._show_logs_for,
         )
         self.log_messages_table_viewer = LogMessagesTableViewer(
             self.data_manager,
-            on_select=lambda source: self.log_files_viewer.show_source(source),
+            on_select=self._show_logs_for,
         )
         self.ymmsl_graph_viewer = YmmslGraphViewer(self.data_manager)
         self.log_files_viewer = LogFilesViewer(self.data_manager)
@@ -145,6 +145,16 @@ class Dashboard(pn.viewable.Viewer):
 
     def _update_header(self, event) -> None:
         self.header_pane.object = self._header_html()
+
+    def _show_logs_for(self, source: str) -> None:
+        """Show the source's log and mirror the selection in both tables.
+
+        Setting a table's selection programmatically does not fire its
+        click handler, so this cannot loop.
+        """
+        self.log_files_viewer.show_source(source)
+        self.status_table_viewer.select_source(source)
+        self.log_messages_table_viewer.select_source(source)
 
     def session_created(self) -> None:
         """Set up background tasks when a new session is created"""

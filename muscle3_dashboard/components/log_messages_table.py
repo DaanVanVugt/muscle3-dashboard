@@ -86,5 +86,11 @@ class LogMessagesTableViewer(pn.viewable.Viewer):
             return
         self.on_select(str(self.log_table.value.index[event.row]))
 
+    def select_source(self, source: str) -> None:
+        """Highlight the row of the given source, clearing the highlight
+        if it has no row here. Keeps the table selections linked."""
+        index = list(self.log_table.value.index)
+        self.log_table.selection = [index.index(source)] if source in index else []
+
     def __panel__(self):
         return self.card

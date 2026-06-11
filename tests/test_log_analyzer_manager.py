@@ -74,3 +74,40 @@ def test_unsuccessful_run(assets_path):
     assert mla.muscle_manager_version == "unknown"
     assert mla.status == ""
     assert len(mla.new_lines) == 31
+
+
+def test_padded_component_lines(tmp_path):
+    """The source column is left-justified; padded component lines must
+    parse and be counted per source."""
+    log_file = tmp_path / "muscle3_manager.log"
+    log_file.write_text(
+        "muscle_manager 2026-06-11 00:30:31,342 INFO    "
+        "libmuscle.manager: Started the simulation\n"
+        "torax          2026-06-11 00:30:41,793 DEBUG   torax: "
+        "Timeout on receiving messages set to 10.000000\n"
+        "torax          2026-06-11 00:30:42,100 ERROR   torax: solver diverged\n"
+        "Not a log line at all\n"
+    )
+    mla = ManagerLogAnalyzer(log_file, [])
+    assert mla.lines_read == 4
+    assert mla.lines_parsed == 3
+    assert mla.messages_per_level["DEBUG"] == 1
+    assert mla.messages_per_level["ERROR"] == 1
+    assert mla.messages_per_level_by_source == {
+        "muscle_manager": {
+            "DEBUG": 0,
+            "INFO": 1,
+            "WARNING": 0,
+            "ERROR": 0,
+            "CRITICAL": 0,
+            "unknown": 0,
+        },
+        "torax": {
+            "DEBUG": 1,
+            "INFO": 0,
+            "WARNING": 0,
+            "ERROR": 1,
+            "CRITICAL": 0,
+            "unknown": 0,
+        },
+    }

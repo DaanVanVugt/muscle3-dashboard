@@ -33,6 +33,7 @@ class LogFilesViewer(pn.viewable.Viewer):
         )
         self.component_terminals: dict[str, pn.widgets.Terminal] = {}
         self.component_panes: dict[str, pn.Column] = {}
+        self._has_output: set[str] = set()
         self.source = MANAGER
 
         self.stream_toggle = pn.widgets.RadioButtonGroup(
@@ -80,8 +81,14 @@ class LogFilesViewer(pn.viewable.Viewer):
 
         Called when a row is clicked in the status table or in the
         log-messages table; ``muscle_manager`` shows the manager log.
+        Picks the stream automatically: stderr when it has messages,
+        stdout otherwise.
         """
         self.source = source
+        if source != MANAGER:
+            self.stream_toggle.value = (
+                "stderr" if f"{source} - stderr" in self._has_output else "stdout"
+            )
         self._show_current()
 
     def log_pane(self, terminal: pn.widgets.Terminal, path: Path) -> pn.Column:
@@ -136,6 +143,8 @@ class LogFilesViewer(pn.viewable.Viewer):
                         analyzers[component].path,
                     )
                     created = True
+                if lines:
+                    self._has_output.add(key)
                 for line in lines[-MAX_LINES:]:
                     self.component_terminals[key].write(line)
 
