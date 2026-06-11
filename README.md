@@ -62,8 +62,9 @@ Some sites disable *both* TCP and unix-socket forwarding, so every
 *exec* channels (running a command) are not forwarding and stay
 allowed, so `m3dash connect` tunnels over one: it listens on a local
 port and, per browser connection, runs an ssh command whose remote end
-is plain `ncat -U ~/.m3dash.sock` (a stock tool on most clusters, so
-nothing of m3dash is needed on the remote PATH).
+is a python3 one-liner bridging stdin/stdout to `~/.m3dash.sock`.
+Nothing of m3dash is needed on the remote PATH — only python3, which
+is always there (whereas ncat/socat are often absent or restricted).
 
 **Start the server** where the environment is set up. On a module-based
 cluster the m3dash command lives behind `module load`, which a
@@ -96,7 +97,8 @@ Host <login-node>
 
 Pass through a bastion with `--ssh 'ssh -J bastion'`, target a
 non-default socket with `--remote-socket`, or swap the remote bridge
-command entirely with `--remote-cmd`.
+command entirely with `--remote-cmd` (e.g. `'ncat -U ~/.m3dash.sock'`
+where ncat is allowed).
 
 Then http://localhost:4333 is a permanent bookmark. If you use a
 different local port, pass `--local-port` to `m3dash serve` too so the

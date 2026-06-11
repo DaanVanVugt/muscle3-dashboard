@@ -11,8 +11,8 @@ Client side (your machine):
   ``m3dash connect``  listen on a local port and tunnel to a login node over
                       an ssh *exec* channel -- works even when ssh port and
                       unix-socket forwarding are both prohibited. The remote
-                      end of the bridge is a stock tool (``ncat -U``), so
-                      nothing of m3dash is needed on the remote PATH.
+                      end of the bridge is a python3 one-liner, so nothing
+                      of m3dash is needed on the remote PATH.
 """
 
 import logging
@@ -249,6 +249,24 @@ def sshline(host: str | None, local_port: int) -> None:
     )
 
 
+#: stdin/stdout <-> unix-socket bridge, run on the login node over an ssh
+#: exec channel (``python3 -c <this> <socket>``). A python3 is always on
+#: a cluster's default PATH, whereas ncat/socat are often absent or
+#: restricted (mode 750 on ITER SDCC). The socket path is an argv and
+#: expanded by python, so no remote shell quoting/expansion is involved.
+_BRIDGE_PY = """\
+import os,socket,sys,threading
+s=socket.socket(socket.AF_UNIX)
+s.connect(os.path.expanduser(sys.argv[1]))
+def up():
+    while d:=os.read(0,65536): s.sendall(d)
+    try: s.shutdown(socket.SHUT_WR)
+    except OSError: pass
+threading.Thread(target=up,daemon=True).start()
+while d:=s.recv(65536): os.write(1,d)
+"""
+
+
 def _shovel(src: socket.socket | int, dst: socket.socket | int) -> None:
     """Copy bytes from src to dst until EOF; src/dst are fds or sockets."""
     src_fd = src if isinstance(src, int) else src.fileno()
@@ -288,8 +306,9 @@ def _shovel(src: socket.socket | int, dst: socket.socket | int) -> None:
     "--remote-cmd",
     default=None,
     help="Remote command that connects to the socket and bridges "
-    "stdin/stdout. Defaults to 'ncat -U <remote-socket>', which needs "
-    "nothing of m3dash on the remote PATH.",
+    "stdin/stdout. Defaults to a python3 one-liner, which needs nothing "
+    "but python3 on the remote PATH; where ncat is allowed, "
+    "'ncat -U ~/.m3dash.sock' works too.",
 )
 def connect(
     ssh_host: str,
@@ -302,9 +321,10 @@ def connect(
 
     Use this when ``ssh -L`` fails with "administratively prohibited"
     (both TCP and unix-socket forwarding disabled): exec channels are not
-    forwarding, so they stay allowed. The remote end is plain
-    ``ncat -U <socket>``, so the server must already be running there --
-    start it from ``~/.bashrc`` (``m3dash ensure``) or cron. Each browser
+    forwarding, so they stay allowed. The remote end is a python3
+    one-liner bridging stdin/stdout to the socket, so the server must
+    already be running there -- start it from ``~/.bashrc``
+    (``m3dash ensure``) or cron. Each browser
     connection spawns one ssh command; set up an ssh ControlMaster so
     those reuse a single authenticated connection instead of
     re-handshaking:
@@ -317,8 +337,9 @@ def connect(
 
     Then browse http://localhost:<local-port>.
     """
-    # NB the remote shell expands ~ in the default socket path; don't quote.
-    bridge = remote_cmd or f"ncat -U {remote_socket}"
+    bridge = remote_cmd or (
+        f"python3 -c {shlex.quote(_BRIDGE_PY)} {shlex.quote(remote_socket)}"
+    )
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind(("127.0.0.1", local_port))

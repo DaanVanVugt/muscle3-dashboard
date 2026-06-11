@@ -1,6 +1,10 @@
 """Smoke tests for the m3dash CLI surface."""
 
 import json
+import socket
+import subprocess
+import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -55,6 +59,31 @@ def test_sshline_mentions_both_paths():
     assert result.exit_code == 0, result.output
     assert "LocalForward" in result.output  # forwarding-allowed recipe
     assert "m3dash connect login01.example" in result.output  # bridge recipe
+
+
+def test_bridge_py_relays_both_ways(tmp_path):
+    # The connect default: a python3 one-liner bridging stdin/stdout to
+    # a unix socket. Run it against a tiny echo server.
+    sock_path = tmp_path / "m3dash.sock"
+    srv = socket.socket(socket.AF_UNIX)
+    srv.bind(str(sock_path))
+    srv.listen(1)
+
+    def echo_one() -> None:
+        conn, _ = srv.accept()
+        with conn:
+            conn.sendall(b"echo:" + conn.recv(100))
+
+    threading.Thread(target=echo_one, daemon=True).start()
+    result = subprocess.run(
+        [sys.executable, "-c", cli._BRIDGE_PY, str(sock_path)],
+        input=b"hello",
+        capture_output=True,
+        timeout=30,
+    )
+    srv.close()
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == b"echo:hello"
 
 
 def test_serve_open_browser_requires_tcp():
