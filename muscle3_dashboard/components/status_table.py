@@ -104,5 +104,13 @@ class StatusTableViewer(pn.viewable.Viewer):
         component = str(self.component_status_table.value.index[event.row])
         self.on_select(component)
 
+    def select_source(self, source: str) -> None:
+        """Highlight the row of the given source, clearing the highlight
+        if it has no row here. Keeps the table selections linked."""
+        index = list(self.component_status_table.value.index)
+        self.component_status_table.selection = (
+            [index.index(source)] if source in index else []
+        )
+
     def __panel__(self):
         return self.card
