@@ -91,9 +91,7 @@ class Dashboard(pn.viewable.Viewer):
         self.status_table_viewer = StatusTableViewer(
             self.data_manager,
             web_urls=web_urls,
-            on_select=lambda component: self.log_files_viewer.show_component(
-                component
-            ),
+            on_select=lambda component: self.log_files_viewer.show_component(component),
         )
         self.log_messages_table_viewer = LogMessagesTableViewer(self.data_manager)
         self.ymmsl_graph_viewer = YmmslGraphViewer(self.data_manager)
@@ -147,6 +145,7 @@ class Dashboard(pn.viewable.Viewer):
 
     def session_created(self) -> None:
         """Set up background tasks when a new session is created"""
+
         # Update log files
         # TODO: use watchfiles to subscribe to notifications instead of polling?
         # Register the periodic callback once the session has loaded rather

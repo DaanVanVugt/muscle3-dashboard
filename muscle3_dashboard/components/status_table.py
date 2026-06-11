@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Optional
+from collections.abc import Callable
 
 import pandas as pd
 import panel as pn
@@ -20,8 +20,8 @@ class StatusTableViewer(pn.viewable.Viewer):
     def __init__(
         self,
         data_manager: DataManager,
-        web_urls: Optional[Dict[str, str]] = None,
-        on_select: Optional[Callable[[str], None]] = None,
+        web_urls: dict[str, str] | None = None,
+        on_select: Callable[[str], None] | None = None,
     ) -> None:
         super().__init__()
         self.web_urls = web_urls or {}

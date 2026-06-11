@@ -32,7 +32,8 @@ class LogFilesViewer(pn.viewable.Viewer):
         )
         # Last-update timestamp shown top-right of the card header.
         self.last_update_pane = pn.pane.HTML(
-            self._last_update_html(), align="center",
+            self._last_update_html(),
+            align="center",
             styles={"color": "#888", "font-size": "0.85em"},
         )
         self.card = pn.Card(
@@ -82,7 +83,7 @@ class LogFilesViewer(pn.viewable.Viewer):
             pn.pane.HTML(
                 f"Logs are truncated at {MAX_LINES} lines. Full log: "
                 f'<span title="click to copy" '
-                f"onclick=\"navigator.clipboard.writeText(this.dataset.path)\" "
+                f'onclick="navigator.clipboard.writeText(this.dataset.path)" '
                 f'data-path="{resolved}" '
                 f'style="cursor:pointer;font-family:monospace">{resolved}</span> '
                 f'<a href="file://{resolved}" title="open in editor" '
