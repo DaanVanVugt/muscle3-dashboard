@@ -175,15 +175,20 @@ class ManagerLogAnalyzer(BaseLogAnalyzer):
         return self.components[name]
 
     def to_dataframe(self) -> pd.DataFrame:
-        """Create dataframe for status table viewer"""
-        return pd.DataFrame(
-            {
-                "name": component.name,
-                "status": component.status,
-                "exit_code": component.exit_code_message,
-            }
-            for component in self.components.values()
-        ).set_index("name")
+        """Create dataframe for status table viewer, sorted by component
+        name to match the log messages table"""
+        return (
+            pd.DataFrame(
+                {
+                    "name": component.name,
+                    "status": component.status,
+                    "exit_code": component.exit_code_message,
+                }
+                for component in self.components.values()
+            )
+            .set_index("name")
+            .sort_index()
+        )
 
     @property
     def simulation_state(self) -> str:
