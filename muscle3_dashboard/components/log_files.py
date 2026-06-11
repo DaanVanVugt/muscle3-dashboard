@@ -138,5 +138,17 @@ class LogFilesViewer(pn.viewable.Viewer):
             groups[component].append(key)
         self.select.groups = dict(sorted(groups.items()))
 
+    def show_component(self, component: str) -> None:
+        """Switch to and show the logs of the given component.
+
+        Called when a component is clicked in the status table.
+        """
+        for keys in self.select.groups.values():
+            for key in keys:
+                if key.split(" - ")[0] == component:
+                    self.select.value = key
+                    self.tabs.active = 1  # the "Component logs" tab
+                    return
+
     def __panel__(self):
         return self.card

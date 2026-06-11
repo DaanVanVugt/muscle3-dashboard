@@ -89,7 +89,11 @@ class Dashboard(pn.viewable.Viewer):
         self.data_manager = DataManager(run_folder)
 
         self.status_table_viewer = StatusTableViewer(
-            self.data_manager, web_urls=web_urls
+            self.data_manager,
+            web_urls=web_urls,
+            on_select=lambda component: self.log_files_viewer.show_component(
+                component
+            ),
         )
         self.log_messages_table_viewer = LogMessagesTableViewer(self.data_manager)
         self.ymmsl_graph_viewer = YmmslGraphViewer(self.data_manager)
