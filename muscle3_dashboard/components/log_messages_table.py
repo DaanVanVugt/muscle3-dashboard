@@ -4,54 +4,69 @@ import panel as pn
 from muscle3_dashboard.constants import CARD_MARGIN
 from muscle3_dashboard.data_manager import DataManager
 
+_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "unknown"]
+#: Highlight colours for nonzero counts of the levels that need attention.
+_LEVEL_COLORS = {"WARNING": "#ef6c00", "ERROR": "#c62828", "CRITICAL": "#c62828"}
+
+
+def _count_html(level: str, count: int) -> str:
+    if not count:
+        return '<span style="opacity:0.4">0</span>'
+    color = _LEVEL_COLORS.get(level)
+    if color:
+        return f'<b style="color:{color}">{count}</b>'
+    return str(count)
+
 
 class LogMessagesTableViewer(pn.viewable.Viewer):
-    """Panel component showing the number of log messages per log level for
-    different muscle3 components and the muscle_manager"""
+    """Panel component showing the number of log messages per log level,
+    per source (the muscle_manager itself and each remote component)"""
 
     def __init__(self, data_manager: DataManager) -> None:
         super().__init__()
-        logmessages = pd.DataFrame(
-            {
-                "component": ["muscle_manager"],
-                "DEBUG": [0],
-                "INFO": [0],
-                "WARNING": [0],
-                "ERROR": [0],
-                "CRITICAL": [0],
-                "unknown": [0],
-            }
-        ).set_index("component")
+        self.data_manager = data_manager
 
-        # NB: no frozen_rows -- freezing the single row renders it in a
-        # separate layer offset from the headers. The old lowercase
-        # `sorters` also never matched the uppercase columns; drop them.
+        # NB: no frozen_rows -- freezing rows renders them in a separate
+        # layer offset from the headers.
         self.log_table = pn.widgets.Tabulator(
-            logmessages,
+            self._to_dataframe(),
             disabled=True,
             show_index=True,
             layout="fit_data_table",
-            sizing_mode="stretch_width",
+            formatters={level: {"type": "html"} for level in _LEVELS},
         )
 
         self.card = pn.Card(
             self.log_table,
-            title="All log messages",
-            sizing_mode="stretch_both",
+            title="Log messages",
+            sizing_mode="stretch_width",
             collapsible=False,
             margin=CARD_MARGIN,
         )
-        self.data_manager = data_manager
         self.data_manager.param.watch(self.update, "data_updated")
+
+    def _to_dataframe(self) -> pd.DataFrame:
+        """Counts per source, muscle_manager first, components sorted"""
+        by_source = self.data_manager.manager_log_analyzer.messages_per_level_by_source
+        if not by_source:
+            by_source = {"muscle_manager": {}}
+        rows = {
+            source: [_count_html(level, counts.get(level, 0)) for level in _LEVELS]
+            for source, counts in sorted(
+                by_source.items(), key=lambda kv: (kv[0] != "muscle_manager", kv[0])
+            )
+        }
+        df = pd.DataFrame.from_dict(rows, orient="index", columns=_LEVELS)
+        df.index.name = "source"
+        return df
 
     def update(self, event):
         """Method to update log messages table viewer from listener"""
-        self.log_table.patch(
-            pd.DataFrame(
-                self.data_manager.manager_log_analyzer.messages_per_level,
-                index=["muscle_manager"],
-            )
-        )
+        df = self._to_dataframe()
+        if df.index.equals(self.log_table.value.index):
+            self.log_table.patch(df)
+        else:
+            self.log_table.value = df
 
     def __panel__(self):
         return self.card

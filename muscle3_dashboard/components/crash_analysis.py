@@ -8,18 +8,21 @@ from muscle3_dashboard.data_manager import DataManager
 
 class CrashAnalysisViewer(pn.viewable.Viewer):
     """Panel component showing the most likely components responsible for a
-    simulation crash"""
+    simulation crash. Collapsed while there is nothing to report; pops
+    open on the first detected crash."""
 
     def __init__(self, data_manager: DataManager) -> None:
         super().__init__()
         self.components_exit_code_dict = {}
-        self.markdown = pn.pane.Markdown(self.markdown_str)
+        self.alert = pn.pane.Alert(self.markdown_str, alert_type="success")
         self.card = pn.Card(
-            self.markdown,
+            self.alert,
             title="Crash analysis",
             margin=CARD_MARGIN,
             sizing_mode="stretch_width",
+            collapsed=True,
         )
+        self._crash_reported = False
         self.data_manager = data_manager
         self.data_manager.param.watch(self.update, "data_updated")
 
@@ -29,7 +32,17 @@ class CrashAnalysisViewer(pn.viewable.Viewer):
             component.name: component.exit_code_message
             for component in self.data_manager.manager_log_analyzer.components.values()
         }
-        self.markdown.object = self.markdown_str
+        crashed = any(
+            message and message != "0"
+            for message in self.components_exit_code_dict.values()
+        )
+        self.alert.object = self.markdown_str
+        self.alert.alert_type = "danger" if crashed else "success"
+        # Open the card once per crash; leave it alone afterwards so the
+        # user can re-collapse it.
+        if crashed and not self._crash_reported:
+            self._crash_reported = True
+            self.card.collapsed = False
 
     @property
     def markdown_str(self):

@@ -1,4 +1,3 @@
-import html
 from collections import defaultdict
 from pathlib import Path
 
@@ -6,6 +5,7 @@ import panel as pn
 
 from muscle3_dashboard.constants import CARD_MARGIN, MAX_LINES, TERMINAL_HEIGHT
 from muscle3_dashboard.data_manager import DataManager
+from muscle3_dashboard.pathlink import path_html
 
 
 class LogFilesViewer(pn.viewable.Viewer):
@@ -30,26 +30,7 @@ class LogFilesViewer(pn.viewable.Viewer):
             sizing_mode="stretch_width",
             max_height=800,
         )
-        # Last-update timestamp shown top-right of the card header.
-        self.last_update_pane = pn.pane.HTML(
-            self._last_update_html(),
-            align="center",
-            styles={"color": "#888", "font-size": "0.85em"},
-        )
-        self.card = pn.Card(
-            self.tabs,
-            margin=CARD_MARGIN,
-            header=pn.Row(
-                pn.pane.HTML("<b>Log files</b>", align="center"),
-                pn.HSpacer(),
-                self.last_update_pane,
-                sizing_mode="stretch_width",
-            ),
-        )
-
-    def _last_update_html(self) -> str:
-        ts = self.data_manager.logs_last_updated
-        return f"updated {ts.strftime('%H:%M:%S')}" if ts else ""
+        self.card = pn.Card(self.tabs, margin=CARD_MARGIN, title="Log files")
 
     def components_tab_pane(self) -> pn.Column:
         """Tab for separate component logs"""
@@ -74,20 +55,13 @@ class LogFilesViewer(pn.viewable.Viewer):
     def log_pane(self, terminal: pn.widgets.Terminal, path: Path) -> pn.Column:
         """Get basic log panel with terminal and filepath message.
 
-        The path copies to the clipboard on click and offers a file://
-        link to open it in the desktop editor / file manager.
+        The path copies to the clipboard on click and links to the file.
         """
-        resolved = html.escape(str(path.resolve()))
         return pn.Column(
             terminal,
             pn.pane.HTML(
                 f"Logs are truncated at {MAX_LINES} lines. Full log: "
-                f'<span title="click to copy" '
-                f'onclick="navigator.clipboard.writeText(this.dataset.path)" '
-                f'data-path="{resolved}" '
-                f'style="cursor:pointer;font-family:monospace">{resolved}</span> '
-                f'<a href="file://{resolved}" title="open in editor" '
-                f'target="_blank" style="text-decoration:none">&#x2197;</a>',
+                + path_html(path, monospace=True),
                 sizing_mode="stretch_width",
             ),
             sizing_mode="stretch_width",
@@ -105,7 +79,6 @@ class LogFilesViewer(pn.viewable.Viewer):
 
     def update(self, event) -> None:
         """Method to update log file viewer from listener"""
-        self.last_update_pane.object = self._last_update_html()
         for line in self.data_manager.manager_log_lines[-MAX_LINES:]:
             self.manager_terminal.write(line)
 
