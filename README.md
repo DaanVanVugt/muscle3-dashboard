@@ -127,3 +127,12 @@ WebSocket `Origin` to `localhost:<target-port>` so the target's Bokeh
 origin check passes. Subdomain proxying works over the loopback access
 path (socket or `m3dash connect`); set `--local-port` to match the port
 you reach m3dash on so the generated links are correct.
+## Log exploration with logdy (optional)
+
+If the [`logdy`](https://logdy.dev) binary is available, m3dash starts one
+`logdy follow` per run over that run's log files and embeds its web log
+explorer (search, filter, live tail) as an "Explore (logdy)" tab in the
+run page's Log files card, reached through the same subdomain proxy as
+actor UIs. Point at a binary with `M3DASH_LOGDY=/path/to/logdy` (or put
+`logdy` on `PATH`); extra flags via `M3DASH_LOGDY_ARGS`. Without it, the
+run page keeps the built-in log terminals.

@@ -66,3 +66,17 @@ def test_serve_open_browser_requires_tcp():
     result = CliRunner().invoke(cli.main, ["serve", "--no-tcp", "--open-browser"])
     assert result.exit_code != 0
     assert "open-browser" in result.output.lower()
+
+
+def test_logviewer_absent_is_graceful(tmp_path, monkeypatch):
+    # With no logdy binary, launch() returns None so the run page falls
+    # back to the built-in terminals.
+    from muscle3_dashboard.m3dash import logviewer
+
+    monkeypatch.delenv("M3DASH_LOGDY", raising=False)
+    monkeypatch.setattr(logviewer.shutil, "which", lambda _name: None)
+    run = tmp_path / "run"
+    (run / "instances").mkdir(parents=True)
+    (run / "muscle3_manager.log").write_text("x\n")
+    assert logviewer.find_logdy() is None
+    assert logviewer.launch(run) is None

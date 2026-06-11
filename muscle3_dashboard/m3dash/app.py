@@ -255,7 +255,34 @@ def run_app():
     # Local import: pulls in the full dashboard and its dependencies
     from muscle3_dashboard.dashboard import Dashboard
 
-    return Dashboard(run_dir.resolve(), web_urls=_component_web_urls(run_dir))
+    dash = Dashboard(run_dir.resolve(), web_urls=_component_web_urls(run_dir))
+    _add_logdy_tab(dash, run_dir.resolve())
+    return dash
+
+
+def _add_logdy_tab(dash, run_dir: Path) -> None:
+    """If logdy is available, embed its web log explorer as a Logs tab.
+
+    Reached through the same per-target subdomain proxy as actor UIs, so
+    the remote browser can load the iframe over the one m3dash endpoint.
+    Falls back silently to the built-in terminals when logdy is absent.
+    """
+    from muscle3_dashboard.m3dash import logviewer
+    from muscle3_dashboard.m3dash.proxy import subdomain_host
+
+    port = logviewer.launch(run_dir)
+    if not port:
+        return
+    url = "http://" + subdomain_host("127.0.0.1", port, f"localhost:{LOCAL_PORT}")
+    iframe = pn.pane.HTML(
+        f'<iframe src="{url}" style="width:100%;height:70vh;border:0"></iframe>',
+        sizing_mode="stretch_width",
+    )
+    try:
+        dash.log_files_viewer.tabs.insert(0, ("Explore (logdy)", iframe))
+        dash.log_files_viewer.tabs.active = 0
+    except Exception:  # noqa: BLE001 - never break the page over the explorer
+        logger.exception("Could not add the logdy tab")
 
 
 def _component_web_urls(run_dir: Path) -> dict[str, str]:
