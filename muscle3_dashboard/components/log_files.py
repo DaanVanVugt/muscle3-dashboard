@@ -1,3 +1,4 @@
+import html
 from collections import defaultdict
 from pathlib import Path
 
@@ -52,12 +53,23 @@ class LogFilesViewer(pn.viewable.Viewer):
         self.component_container.object = self.component_panes[event.new]
 
     def log_pane(self, terminal: pn.widgets.Terminal, path: Path) -> pn.Column:
-        """Get basic log panel with terminal and filepath message"""
+        """Get basic log panel with terminal and filepath message.
+
+        The path copies to the clipboard on click and offers a file://
+        link to open it in the desktop editor / file manager.
+        """
+        resolved = html.escape(str(path.resolve()))
         return pn.Column(
             terminal,
-            pn.pane.Markdown(
-                f"Logs are truncated at {MAX_LINES} lines. "
-                f"Full logs found at `{path.resolve()}`"
+            pn.pane.HTML(
+                f"Logs are truncated at {MAX_LINES} lines. Full log: "
+                f'<span title="click to copy" '
+                f"onclick=\"navigator.clipboard.writeText(this.dataset.path)\" "
+                f'data-path="{resolved}" '
+                f'style="cursor:pointer;font-family:monospace">{resolved}</span> '
+                f'<a href="file://{resolved}" title="open in editor" '
+                f'target="_blank" style="text-decoration:none">&#x2197;</a>',
+                sizing_mode="stretch_width",
             ),
             sizing_mode="stretch_width",
         )

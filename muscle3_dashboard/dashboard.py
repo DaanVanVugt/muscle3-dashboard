@@ -1,3 +1,4 @@
+import html
 from functools import lru_cache
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -39,25 +40,46 @@ def _dashboard_version() -> str:
         return "dev"
 
 
-class Dashboard(pn.viewable.Viewer):
-    """Main dashboard for muscle3_dashboard app"""
+def _path_html(run_folder: Path) -> str:
+    """A run-dir string that copies its path on click and offers a
+    file:// link to open it in the desktop file manager."""
+    path = html.escape(str(run_folder.resolve()))
+    return (
+        f'<span title="click to copy" '
+        f'onclick="navigator.clipboard.writeText(this.dataset.path)" '
+        f'data-path="{path}" '
+        f'style="cursor:pointer;color:#555;font-size:1em">{path}</span> '
+        f'<a href="file://{path}" title="open in file manager" '
+        f'target="_blank" style="text-decoration:none">&#x2197;</a>'
+    )
 
-    def __init__(self, run_folder: Path | None = None) -> None:
+
+class Dashboard(pn.viewable.Viewer):
+    """Main dashboard for muscle3_dashboard app.
+
+    ``web_urls`` optionally maps a component name to an HTML link to its
+    served UI; when given it is shown as a column in the status table and
+    summarised in the header.
+    """
+
+    def __init__(
+        self,
+        run_folder: Path | None = None,
+        web_urls: dict[str, str] | None = None,
+    ) -> None:
         self.run_folder: Path | None = run_folder
 
-        title = (
-            f"MUSCLE3 Dashboard | {_dashboard_version()} | "
-            f"Run folder: {run_folder.name}"
-        )
         self.template = pn.template.VanillaTemplate(
             collapsed_sidebar=True,
-            title=title,
+            title=f"MUSCLE3 Dashboard | {_dashboard_version()}",
         )
 
         self.data_manager = DataManager(run_folder)
 
         self.overview_viewer = OverviewViewer(self.data_manager)
-        self.status_table_viewer = StatusTableViewer(self.data_manager)
+        self.status_table_viewer = StatusTableViewer(
+            self.data_manager, web_urls=web_urls
+        )
         self.log_messages_table_viewer = LogMessagesTableViewer(self.data_manager)
         self.ymmsl_graph_viewer = YmmslGraphViewer(self.data_manager)
         self.log_files_viewer = LogFilesViewer(self.data_manager)
@@ -66,18 +88,33 @@ class Dashboard(pn.viewable.Viewer):
             self.data_manager
         )
 
+        # Header strip: run name + copyable / openable run directory.
+        self.template.header.append(
+            pn.pane.HTML(
+                f"<b>{html.escape(run_folder.name)}</b> &nbsp; "
+                f"{_path_html(run_folder)}",
+                sizing_mode="stretch_width",
+            )
+        )
+
+        # Single page, top to bottom: overview, then the component status
+        # table beside the simulation graph (linked on hover, nodes
+        # coloured by status), then logs, then crash analysis.
         self.template.main.append(
             pn.Column(
                 pn.Row(
                     self.overview_viewer,
-                    self.status_table_viewer,
                     self.log_messages_table_viewer,
                     height=200,
                 ),
-                # self.ymmsl_graph_viewer,
+                pn.Row(
+                    self.status_table_viewer,
+                    self.ymmsl_graph_viewer,
+                    sizing_mode="stretch_width",
+                ),
                 self.log_files_viewer,
                 self.crash_analysis_viewer,
-                # self.profiling_information_viewer,
+                sizing_mode="stretch_width",
             )
         )
 

@@ -255,43 +255,32 @@ def run_app():
     # Local import: pulls in the full dashboard and its dependencies
     from muscle3_dashboard.dashboard import Dashboard
 
-    dash = Dashboard(run_dir.resolve())
-    card = _web_uis_card(run_dir.resolve())
-    if card is not None:
-        dash.template.main.insert(0, card)
-    return dash
+    return Dashboard(run_dir.resolve(), web_urls=_component_web_urls(run_dir))
 
 
-def _web_uis_card(run_dir: Path):
-    """A card listing each instance's harvested UIs as proxy links."""
+def _component_web_urls(run_dir: Path) -> dict[str, str]:
+    """Map each component to an HTML link to its harvested UI (proxied).
+
+    Used as the status table's "web UI" column.
+    """
     from muscle3_dashboard.m3dash.harvest import harvest_run
     from muscle3_dashboard.m3dash.proxy import subdomain_host
 
-    found = harvest_run(run_dir, fallback_node=socket.gethostname())
-    if not found:
-        return None
     by_instance: dict[str, list[str]] = {}
-    for u in found:
+    for u in harvest_run(run_dir, fallback_node=socket.gethostname()):
         if u.resolved and u.node and u.port:
             sub = subdomain_host(u.node, u.port, f"localhost:{LOCAL_PORT}")
             link = f"http://{sub}{u.path or '/'}"
-            label = f'<a href="{html.escape(link)}" target="_blank">{html.escape(u.original)}</a>'
-        else:
-            label = (
-                f'{html.escape(u.original)} '
-                f'<span style="color:#999">(node unresolved)</span>'
+            html_link = (
+                f'<a href="{html.escape(link)}" target="_blank">open &#x2197;</a>'
             )
-        by_instance.setdefault(u.instance, []).append(label)
-    items = "".join(
-        f"<li><b>{html.escape(inst)}</b>: {' , '.join(links)}</li>"
-        for inst, links in sorted(by_instance.items())
-    )
-    return pn.Card(
-        pn.pane.HTML(f"<ul style='margin:0'>{items}</ul>"),
-        title="Web UIs (proxied)",
-        collapsed=False,
-        sizing_mode="stretch_width",
-    )
+        else:
+            html_link = (
+                f'<span title="node unresolved: {html.escape(u.original)}">'
+                f"(unresolved)</span>"
+            )
+        by_instance.setdefault(u.instance, []).append(html_link)
+    return {inst: " , ".join(links) for inst, links in by_instance.items()}
 
 
 def _claim_socket(socket_path: Path) -> None:
