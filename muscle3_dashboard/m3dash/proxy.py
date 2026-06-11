@@ -90,7 +90,7 @@ class HTTPProxyHandler(_ProxyBase, tornado.web.RequestHandler):
 
     SUPPORTED_METHODS = ("GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS")
 
-    async def _proxy(self) -> None:
+    async def _proxy(self, *args) -> None:
         try:
             host, port = self.target()
         except ValueError:
@@ -140,23 +140,7 @@ class HTTPProxyHandler(_ProxyBase, tornado.web.RequestHandler):
         self.finish()
 
     # All methods funnel through _proxy.
-    async def get(self, *args):
-        await self._proxy()
-
-    async def post(self, *args):
-        await self._proxy()
-
-    async def put(self, *args):
-        await self._proxy()
-
-    async def delete(self, *args):
-        await self._proxy()
-
-    async def head(self, *args):
-        await self._proxy()
-
-    async def options(self, *args):
-        await self._proxy()
+    get = post = put = delete = head = options = _proxy
 
 
 class WebSocketProxyHandler(_ProxyBase, tornado.websocket.WebSocketHandler):

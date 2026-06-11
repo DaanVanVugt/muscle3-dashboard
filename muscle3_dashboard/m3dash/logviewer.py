@@ -13,6 +13,7 @@ the built-in xterm log terminals unchanged. Point at a binary with the
 flags can be passed via ``M3DASH_LOGDY_ARGS``.
 """
 
+import atexit
 import logging
 import os
 import shlex
@@ -27,6 +28,16 @@ logger = logging.getLogger(__name__)
 #: run_dir -> (Popen, port), so we start at most one logdy per run.
 _servers: dict[Path, tuple[subprocess.Popen, int]] = {}
 _lock = threading.Lock()
+
+
+@atexit.register
+def _terminate_all() -> None:
+    # logdy is detached (start_new_session), so without this every
+    # m3dash restart would leave orphaned logdy servers on the node.
+    with _lock:
+        for proc, _port in _servers.values():
+            if proc.poll() is None:
+                proc.terminate()
 
 
 def find_logdy() -> str | None:

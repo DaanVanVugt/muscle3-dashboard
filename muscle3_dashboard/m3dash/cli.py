@@ -135,8 +135,8 @@ def serve(
     no_tcp: bool,
     address: str,
     no_socket: bool,
-    ws_origins: tuple[str],
-    roots: tuple[Path],
+    ws_origins: tuple[str, ...],
+    roots: tuple[Path, ...],
     open_browser: bool,
 ) -> None:
     """Run the m3dash server (blocking)."""
@@ -169,10 +169,10 @@ def serve(
         None if no_socket else socket_path,
         all_roots,
         origins,
-        tcp_port,
-        address,
-        local_port,
-        open_browser,
+        tcp_port=tcp_port,
+        address=address,
+        local_port=local_port,
+        open_browser=open_browser,
     )
 
 
@@ -436,12 +436,14 @@ def connect(
     multiple=True,
     help="Run root to scan (repeatable); defaults to configured roots.",
 )
-def ls(as_json: bool, roots: tuple[Path]) -> None:
+def ls(as_json: bool, roots: tuple[Path, ...]) -> None:
     """List discovered MUSCLE3 runs."""
     from muscle3_dashboard.m3dash.app import load_roots
     from muscle3_dashboard.m3dash.discovery import discover_runs, runs_to_json
 
-    runs = discover_runs([r.expanduser() for r in roots] or load_roots())
+    runs = discover_runs(
+        [r.expanduser() for r in roots] or load_roots(), harvest=as_json
+    )
     if as_json:
         click.echo(runs_to_json(runs))
         return

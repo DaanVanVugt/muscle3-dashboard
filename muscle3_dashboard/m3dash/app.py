@@ -21,6 +21,7 @@ under per-target subdomains (``<token>.localhost``); see
 """
 
 import html
+import inspect
 import logging
 import socket
 import threading
@@ -253,7 +254,12 @@ def run_app():
     # Local import: pulls in the full dashboard and its dependencies
     from muscle3_dashboard.dashboard import Dashboard
 
-    dash = Dashboard(run_dir.resolve(), web_urls=_component_web_urls(run_dir))
+    # web_urls is added by the run-page restyle; stay compatible with a
+    # Dashboard without it (the page then just lacks the web-UI column).
+    kwargs = {}
+    if "web_urls" in inspect.signature(Dashboard).parameters:
+        kwargs["web_urls"] = _component_web_urls(run_dir)
+    dash = Dashboard(run_dir.resolve(), **kwargs)
     _add_logdy_tab(dash, run_dir.resolve())
     return dash
 
@@ -310,17 +316,11 @@ def _component_web_urls(run_dir: Path) -> dict[str, str]:
 
 def _claim_socket(socket_path: Path) -> None:
     """Remove a stale socket, or fail if a live server owns it."""
-    if not socket_path.exists():
-        return
-    probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    try:
-        probe.connect(str(socket_path))
-    except OSError:
-        socket_path.unlink()  # stale
-    else:
+    from muscle3_dashboard.m3dash.cli import _socket_alive
+
+    if _socket_alive(socket_path):
         raise RuntimeError(f"m3dash is already serving on {socket_path}")
-    finally:
-        probe.close()
+    socket_path.unlink(missing_ok=True)
 
 
 def serve(

@@ -195,13 +195,15 @@ def _manager_run_dir(pid: int, cmdline: str) -> Path | None:
     try:
         cwd = Path(os.readlink(f"/proc/{pid}/cwd"))
     except OSError:
-        cwd = Path.cwd()
+        cwd = None  # process gone or inaccessible
     match = re.search(r"--run-dir[= ](\S+)", cmdline)
     if match:
         run_dir = Path(match.group(1))
-        if not run_dir.is_absolute():
-            run_dir = cwd / run_dir
-        return run_dir
+        if run_dir.is_absolute():
+            return run_dir
+        return cwd / run_dir if cwd else None
+    if cwd is None:
+        return None
     # No --run-dir: the manager created run_<model>_<date>-<time> in its cwd;
     # pick the newest one.
     candidates = sorted(
@@ -256,12 +258,16 @@ def scan_roots(roots: list[Path]) -> list[Run]:
     return runs
 
 
-def discover_runs(roots: list[Path]) -> list[Run]:
+def discover_runs(roots: list[Path], *, harvest: bool = False) -> list[Run]:
     """Discover runs from all sources, merged by run directory.
 
     SLURM and process sources take precedence for liveness information;
     the filesystem scan contributes runs that are no longer active.
     Results are sorted by last update time, newest first.
+
+    With ``harvest`` the running runs' ``web_urls`` are filled in from
+    their instance logs (used by ``m3dash ls --json``; the run page does
+    its own harvest, so the dashboard's periodic rescan skips this).
     """
     merged: dict[Path, Run] = {}
     for run in scan_slurm_jobs() + scan_processes() + scan_roots(roots):
@@ -279,7 +285,7 @@ def discover_runs(roots: list[Path]) -> list[Run]:
             existing.status = run.status
     runs = list(merged.values())
     for run in runs:
-        if run.status is RunStatus.RUNNING:
+        if harvest and run.status is RunStatus.RUNNING:
             # Only running runs can have a live UI; harvesting reads
             # instance logs, so skip it for the (many) finished runs.
             # A locally-run manager's actors share its node; for SLURM
