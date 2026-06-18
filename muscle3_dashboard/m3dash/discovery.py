@@ -51,11 +51,17 @@ PRUNE_DIRS = frozenset(
 #: Maximum directory depth (relative to a run root) for filesystem scans.
 MAX_SCAN_DEPTH = 8
 
-#: Bytes of ``muscle3_manager.log`` tail inspected for status detection.
-_TAIL_BYTES = 8192
+#: Bytes of ``muscle3_manager.log`` tail inspected for status detection. Large
+#: enough to look past a trailing crashed-instance output dump to the manager's
+#: "quit with exit code ..." lines.
+_TAIL_BYTES = 65536
 
 _SUCCESS_RE = re.compile(r"The simulation finished without error\.")
-_FAILURE_RE = re.compile(r"crashed|finished with exit code [1-9]|Instantiator crashed")
+_FAILURE_RE = re.compile(
+    r"crashed|Instantiator crashed|Deadlock detected"
+    # "quit/finished with exit code <nonzero>", incl. signals like -9
+    r"|(?:quit|finished) with exit code -?[1-9]\d*"
+)
 
 
 class RunStatus(Enum):
@@ -173,20 +179,29 @@ def scan_slurm_jobs() -> list[Run]:
         if len(parts) != 3:
             continue
         job_id, job_state, workdir = parts
-        for run_dir in _scan_tree(Path(workdir), max_depth=4):
-            status, mtime = _log_status(run_dir)
-            if status is RunStatus.UNKNOWN and job_state == "RUNNING":
-                status = RunStatus.RUNNING
-            runs.append(
-                Run(
-                    run_dir=run_dir,
-                    status=status,
-                    sources=["slurm"],
-                    job_id=job_id,
-                    job_state=job_state,
-                    last_updated=mtime,
-                )
+        candidates = [
+            (run_dir, *_log_status(run_dir))
+            for run_dir in _scan_tree(Path(workdir), max_depth=4)
+        ]
+        if not candidates:
+            continue
+        # A job's workdir often holds many prior runs; the one this job is
+        # actually producing is the most recently updated, so attribute the job
+        # only to that. The others are still listed via scan_roots (no job id).
+        epoch = datetime.fromtimestamp(0)
+        run_dir, status, mtime = max(candidates, key=lambda c: c[2] or epoch)
+        if status is RunStatus.UNKNOWN and job_state == "RUNNING":
+            status = RunStatus.RUNNING
+        runs.append(
+            Run(
+                run_dir=run_dir,
+                status=status,
+                sources=["slurm"],
+                job_id=job_id,
+                job_state=job_state,
+                last_updated=mtime,
             )
+        )
     return runs
 
 
