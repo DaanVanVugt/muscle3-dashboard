@@ -1,4 +1,5 @@
 import base64
+import html
 import logging
 import re
 from collections.abc import Callable
@@ -14,13 +15,17 @@ logger = logging.getLogger(__name__)
 
 # Component box fill per status bucket (light tints; black labels stay readable).
 # muscle3 has no distinct "running" status -- REGISTERED is the active state.
+# "crashed" is the likely culprit (a real non-zero exit); "killed" is collateral
+# (SIGKILL -9 / generic crash when another component failed first).
 _STATUS_FILL = {
     "not_started": "#ffe0b2",  # amber: not started / starting up
     "running": "#c8e6c9",  # green: registered / running
     "finished": "#cfd8dc",  # blue-grey: finished / deregistered
-    "crashed": "#ffcdd2",  # red: non-zero exit / crashed
+    "killed": "#ffcdd2",  # pale red: collateral crash
+    "crashed": "#ef9a9a",  # strong red: responsible / likely culprit
 }
-_CRASHED_STROKE = "#c62828"
+# (stroke colour, width) overlaid on crash buckets so the culprit stands out most.
+_CRASH_STROKE = {"crashed": ("#b71c1c", 5), "killed": ("#e57373", 2)}
 _RUNNING_STATUSES = {
     ComponentStatus.PLANNED,
     ComponentStatus.INSTANTIATING,
@@ -28,7 +33,13 @@ _RUNNING_STATUSES = {
 }
 _FINISHED_STATUSES = {ComponentStatus.DEREGISTERED, ComponentStatus.FINISHED}
 # When a multiplicity's instances differ, show the most attention-worthy state.
-_BUCKET_PRIORITY = {"crashed": 3, "running": 2, "not_started": 1, "finished": 0}
+_BUCKET_PRIORITY = {
+    "crashed": 4,
+    "killed": 3,
+    "running": 2,
+    "not_started": 1,
+    "finished": 0,
+}
 
 try:
     from ymmsl2svg import ymmsl2svg
@@ -122,7 +133,8 @@ class YmmslGraphViewer(pn.viewable.Viewer):
 
         self.graph = _ClickableSVG()
         self.graph.param.watch(self._on_click, "component")
-        self.note = pn.pane.Markdown(visible=False)  # "approximate" warning
+        # Small, click-to-expand "approximate layout" warning (<details>).
+        self.note = pn.pane.HTML(visible=False, sizing_mode="stretch_width")
         self.message = pn.pane.Markdown(visible=False)  # error / no-graph text
         self.card = pn.Card(
             self.note,
@@ -150,7 +162,7 @@ class YmmslGraphViewer(pn.viewable.Viewer):
             return
 
         ymmsl2svg_settings.debug = False
-        approximate = False
+        note_html = ""
         try:
             ymmsl2svg_settings.check_timelines = True
             svg = ymmsl2svg(config)
@@ -160,7 +172,7 @@ class YmmslGraphViewer(pn.viewable.Viewer):
             try:
                 ymmsl2svg_settings.check_timelines = False
                 svg = ymmsl2svg(config)
-                approximate = True
+                note_html = self._approximate_note(strict_error)
             except Exception:
                 logger.warning("Could not visualize %s: %s", config, strict_error)
                 self._show_message(
@@ -174,17 +186,31 @@ class YmmslGraphViewer(pn.viewable.Viewer):
         self._rendered = True
         self.graph.visible = True
         self.message.visible = False
-        self.note.object = (
-            "⚠ Timelines could not be verified for this model; "
-            "the layout is approximate."
-        )
-        self.note.visible = approximate
+        self.note.object = note_html
+        self.note.visible = bool(note_html)
         self._apply_styling()
+
+    @staticmethod
+    def _approximate_note(error: Exception) -> str:
+        """Small, click-to-expand notice carrying the full strict error."""
+        details = html.escape(str(error))
+        return (
+            '<details style="font-size:0.8em;opacity:0.8;margin:2px 4px">'
+            '<summary style="cursor:pointer">&#9888; Timelines could not be '
+            "verified — layout is approximate (click for details)</summary>"
+            '<pre style="white-space:pre-wrap;font-size:0.95em;margin:4px 0">'
+            f"{details}</pre></details>"
+        )
 
     def _bucket(self, component) -> str:
         """Map a component's status / exit code to a colour bucket."""
         message = component.exit_code_message
         if message and message != "0":
+            # SIGKILL (-9) / generic "crashed" are usually collateral damage
+            # after another component failed; a real non-zero exit is the
+            # likely culprit, so rank it highest.
+            if "-9" in message or "crashed" in message:
+                return "killed"
             return "crashed"
         if component.status in _RUNNING_STATUSES:
             return "running"
@@ -221,8 +247,9 @@ class YmmslGraphViewer(pn.viewable.Viewer):
         css = "text{pointer-events:none}[id^='component-']{cursor:pointer}"
         for name, bucket in sorted(statuses.items()):
             rule = f'[id="component-{name}"]{{fill:{_STATUS_FILL[bucket]}'
-            if bucket == "crashed":
-                rule += f";stroke:{_CRASHED_STROKE};stroke-width:4"
+            stroke = _CRASH_STROKE.get(bucket)
+            if stroke:
+                rule += f";stroke:{stroke[0]};stroke-width:{stroke[1]}"
             css += rule + "}"
         styled = self._base_svg.replace(
             "</svg>", f"<style>{css}</style></svg>", 1
