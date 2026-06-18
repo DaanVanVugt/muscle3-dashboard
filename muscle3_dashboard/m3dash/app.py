@@ -42,9 +42,9 @@ from muscle3_dashboard.m3dash.discovery import (
 logger = logging.getLogger(__name__)
 
 ROOTS_FILE = Path("~/.config/m3dash/roots").expanduser()
-# Incremental discovery (cached dir listings + log status) makes rescans cheap
-# after the first, so they can run fairly often.
-RESCAN_INTERVAL_SECONDS = 20
+# Incremental discovery (cached dir listings + log status, parallel stat) makes
+# rescans cheap after the first, so they can run often.
+RESCAN_INTERVAL_SECONDS = 5
 VIEW_REFRESH_MILLISECONDS = 5000
 #: Local port the browser reaches m3dash on; used to build proxy links.
 LOCAL_PORT = 4333
@@ -202,20 +202,19 @@ def _runs_table_html(runs: list[Run]) -> str:
     for run in sorted(runs, key=lambda r: r.last_updated or epoch, reverse=True):
         path = str(run.run_dir)
         rel = path[len(common) :].lstrip("/") if common else path
-        # Fade the path components shared with the row above so only the
-        # distinguishing tail stands out (kept in the link for alignment).
+        # Blank out the path components shared with the row above (replacing
+        # them with spaces) so only the distinguishing tail shows, aligned.
         cut = _common_prefix_len(previous, rel)
         previous = rel
-        shared, unique = html.escape(rel[:cut]), html.escape(rel[cut:])
+        indent, unique = " " * cut, html.escape(rel[cut:])
         query = urllib.parse.urlencode({"dir": path})
         dot = _DOT_COLORS[run.status]
         rows.append(
             "<tr>"
-            '<td style="font-family:monospace">'
+            '<td style="font-family:monospace;white-space:pre">'
             f'<span style="color:{dot}" title="{html.escape(run.status.value)}">'
             "●</span> "
-            f'<a href="run?{query}" target="_blank">'
-            f'<span style="color:#ccc">{shared}</span>{unique}</a>'
+            f'{indent}<a href="run?{query}" target="_blank">{unique}</a>'
             "</td>"
             f'<td style="white-space:nowrap">{_updated_html(run.last_updated)}</td>'
             f"<td>{html.escape(_job_ref(run))}</td>"
