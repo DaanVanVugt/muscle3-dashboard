@@ -21,6 +21,20 @@ _COPY_JS = (
 )
 
 
+def copy_link(label: str, path: Path) -> str:
+    """Render ``label`` as a click-to-copy link that copies ``path``.
+
+    Shows the label (e.g. a component name) rather than the path itself, so a
+    long path doesn't wrap; clicking copies the full path to the clipboard.
+    """
+    resolved = html.escape(str(path.resolve()))
+    return (
+        f'<span title="click to copy {resolved}" onclick="{_COPY_JS}" '
+        f'data-path="{resolved}" style="cursor:pointer;'
+        f'text-decoration:underline dotted">{html.escape(label)}</span>'
+    )
+
+
 def path_html(path: Path, *, monospace: bool = False) -> str:
     """Render a path as HTML that copies itself to the clipboard on click,
     with a file:// link to open it when the browser runs on the machine

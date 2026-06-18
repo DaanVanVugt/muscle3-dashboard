@@ -5,7 +5,7 @@ import panel as pn
 
 from muscle3_dashboard.constants import CARD_MARGIN, MAX_LINES, TERMINAL_HEIGHT
 from muscle3_dashboard.data_manager import DataManager
-from muscle3_dashboard.pathlink import path_html
+from muscle3_dashboard.pathlink import copy_link
 
 MANAGER = "muscle_manager"
 
@@ -150,12 +150,14 @@ class LogFilesViewer(pn.viewable.Viewer):
             )
             analyzer = analyzers.get(instance)
             path = analyzer.path if analyzer is not None else None
-        # The log file path sits in the subtitle and copies to the clipboard
-        # on click.
-        title = f"<b>Log files</b> — {html.escape(shown)}"
-        if path is not None:
-            title += "&nbsp;&nbsp;" + path_html(path, monospace=True)
-        self.title_pane.object = title
+        # The shown name is itself the click-to-copy link for the log path, so
+        # the long path doesn't show (or wrap) in the subtitle.
+        name = (
+            copy_link(shown, path) if path is not None else html.escape(shown)
+        )
+        self.title_pane.object = (
+            f'<span style="white-space:nowrap"><b>Log files</b> — {name}</span>'
+        )
         self.container.object = pane
 
     def show_source(self, source: str) -> None:
