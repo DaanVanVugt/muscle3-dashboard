@@ -128,44 +128,78 @@ def _age(timestamp: datetime | None) -> str:
     return f"{int(seconds / 86400)}d"
 
 
-def _runs_table_html(runs: list[Run]) -> str:
-    """Render the run list as an HTML table with links to /run.
+# Status dot colours: red = needs attention, green = alive, grey = done/idle.
+_DOT_COLORS = {
+    RunStatus.RUNNING: "#2e7d32",
+    RunStatus.FAILED: "#d32f2f",
+    RunStatus.FINISHED: "#9e9e9e",
+    RunStatus.UNKNOWN: "#bdbdbd",
+}
 
-    Per-component web UIs are shown on the run page (in the component
-    status table), not here. The run-directory cell copies its full path
-    to the clipboard on click.
+
+def _job_ref(run: Run) -> str:
+    if run.job_id:
+        return f"job {run.job_id}"
+    if run.pid:
+        return f"pid {run.pid}"
+    return ""
+
+
+def _common_prefix_len(a: str, b: str) -> int:
+    """Length of the longest path prefix a and b share up to a '/' boundary."""
+    cut = 0
+    for i in range(min(len(a), len(b))):
+        if a[i] != b[i]:
+            break
+        if a[i] == "/":
+            cut = i + 1
+    return cut
+
+
+def _updated_html(timestamp: datetime | None) -> str:
+    if timestamp is None:
+        return "?"
+    return (
+        f'{timestamp.strftime("%Y-%m-%d %H:%M:%S")} '
+        f'<span style="opacity:0.55">({_age(timestamp)})</span>'
+    )
+
+
+def _runs_table_html(runs: list[Run]) -> str:
+    """Render the run list as an HTML table keyed on the run directory.
+
+    Runs are sorted by path; each row's clickable run-directory path opens
+    /run, with the part shared with the row above blanked out (and aligned, in
+    a monospace cell) so only the differing tail stands out. A status dot
+    precedes the path. Per-component web UIs live on the run page, not here.
     """
     rows = []
-    for run in runs:
-        query = urllib.parse.urlencode({"dir": str(run.run_dir)})
-        color = _STATUS_COLORS[run.status]
-        if run.job_id:
-            ref = f"job {run.job_id}"
-        elif run.pid:
-            ref = f"pid {run.pid}"
-        else:
-            ref = ""
-        run_dir = html.escape(str(run.run_dir))
+    previous = ""
+    for run in sorted(runs, key=lambda r: str(r.run_dir)):
+        path = str(run.run_dir)
+        cut = _common_prefix_len(previous, path)
+        previous = path
+        query = urllib.parse.urlencode({"dir": path})
+        dot = _DOT_COLORS[run.status]
         rows.append(
-            f"<tr>"
-            f'<td><a href="run?{query}" target="_blank">'
-            f"<b>{html.escape(run.name)}</b></a></td>"
-            f'<td><span style="color:{color}">{run.status.value}</span></td>'
-            f"<td>{_age(run.last_updated)}</td>"
-            f"<td>{html.escape(ref)}</td>"
-            f'<td class="m3dpath" title="click to copy" '
-            f'onclick="navigator.clipboard.writeText(this.dataset.path)" '
-            f'data-path="{run_dir}" '
-            f'style="color:#888;font-size:0.85em;cursor:pointer">'
-            f"{run_dir}</td>"
-            f"</tr>"
+            "<tr>"
+            '<td style="font-family:monospace;white-space:pre">'
+            f'<span style="color:{dot}" title="{html.escape(run.status.value)}">'
+            "●</span> "
+            f'{" " * cut}'
+            f'<a href="run?{query}" target="_blank">{html.escape(path[cut:])}</a>'
+            "</td>"
+            f'<td style="white-space:nowrap">{_updated_html(run.last_updated)}</td>'
+            f"<td>{html.escape(_job_ref(run))}</td>"
+            "</tr>"
         )
     if not rows:
-        rows = ['<tr><td colspan="5"><i>No runs found yet.</i></td></tr>']
+        rows = ['<tr><td colspan="3"><i>No runs found yet.</i></td></tr>']
     return (
         '<table style="border-spacing:12px 4px">'
-        "<tr><th>Run</th><th>Status</th><th>Updated</th>"
-        "<th>Job/PID</th><th>Run directory</th></tr>" + "".join(rows) + "</table>"
+        "<tr><th>Run directory</th><th>Updated</th><th>Job/PID</th></tr>"
+        + "".join(rows)
+        + "</table>"
     )
 
 
