@@ -8,9 +8,7 @@ from pathlib import Path
 
 import panel as pn
 
-from muscle3_dashboard.components.crash_analysis import CrashAnalysisViewer
 from muscle3_dashboard.components.log_files import LogFilesViewer
-from muscle3_dashboard.components.log_messages_table import LogMessagesTableViewer
 from muscle3_dashboard.components.profiling_information import (
     ProfilingInformationViewer,
 )
@@ -73,17 +71,12 @@ class Dashboard(pn.viewable.Viewer):
 
         self.data_manager = DataManager(run_folder)
 
-        self.log_messages_table_viewer = LogMessagesTableViewer(
-            self.data_manager,
-            on_select=self._show_logs_for,
-        )
         self.ymmsl_graph_viewer = YmmslGraphViewer(
             self.data_manager,
             on_select=self._show_logs_for,
         )
         self.web_uis_viewer = WebUIsViewer(web_urls)
         self.log_files_viewer = LogFilesViewer(self.data_manager)
-        self.crash_analysis_viewer = CrashAnalysisViewer(self.data_manager)
         self.profiling_information_viewer = ProfilingInformationViewer(
             self.data_manager
         )
@@ -100,17 +93,14 @@ class Dashboard(pn.viewable.Viewer):
         self._auto_opened = False
         self.data_manager.param.watch(self._auto_open_crash, "data_updated")
 
-        # Single page, top to bottom: the simulation graph (crashed components
-        # outlined, click a component to show its logs), the Web UIs card (when
-        # actors expose served UIs), then all log messages, then log files, then
-        # crash analysis.
+        # Single page, top to bottom: the simulation graph (components coloured
+        # by status, click one to show its logs), the Web UIs card (when actors
+        # expose served UIs), then the log files.
         self.template.main.append(
             pn.Column(
                 self.ymmsl_graph_viewer,
                 self.web_uis_viewer,
-                self.log_messages_table_viewer,
                 self.log_files_viewer,
-                self.crash_analysis_viewer,
                 sizing_mode="stretch_width",
             )
         )
@@ -184,13 +174,8 @@ class Dashboard(pn.viewable.Viewer):
         self._show_logs_for(responsible)
 
     def _show_logs_for(self, source: str) -> None:
-        """Show the source's log and mirror the selection in the messages table.
-
-        Setting a table's selection programmatically does not fire its
-        click handler, so this cannot loop.
-        """
+        """Show the given source's log in the log files card."""
         self.log_files_viewer.show_source(source)
-        self.log_messages_table_viewer.select_source(source)
 
     def session_created(self) -> None:
         """Set up background tasks when a new session is created"""
