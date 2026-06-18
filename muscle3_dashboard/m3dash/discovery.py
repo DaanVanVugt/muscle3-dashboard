@@ -24,6 +24,7 @@ import re
 import socket
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -155,12 +156,52 @@ _scan_cache: dict[str, tuple[float, list[str], bool]] = {}
 #: could be missed; re-listing recently-touched directories avoids that.
 _MTIME_SETTLE = 2.0
 
+#: Directory probing is latency-bound (stat/scandir, often over NFS), so each
+#: tree level is probed concurrently.
+_SCAN_WORKERS = 16
+
+
+def _probe_dir(
+    path: Path, depth: int, max_depth: int, now: float
+) -> tuple[float, list[str], bool] | None:
+    """Stat a directory, returning (mtime, child dir names, is_run_dir).
+
+    Reuses the cached listing when the directory's mtime is unchanged and
+    settled; otherwise re-lists it. Returns None if it can't be read.
+    """
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return None
+    cached = _scan_cache.get(str(path))
+    if cached is not None and cached[0] == mtime and mtime < now - _MTIME_SETTLE:
+        return cached
+    try:
+        entries = list(os.scandir(path))
+    except OSError:
+        return None
+    is_run = any(e.name == MANAGER_LOG and e.is_file() for e in entries)
+    # Run dirs hold no nested run dirs worth showing; don't descend.
+    if is_run or depth + 1 >= max_depth:
+        children: list[str] = []
+    else:
+        children = [
+            e.name
+            for e in entries
+            if e.name not in PRUNE_DIRS
+            and not e.name.startswith(".")
+            and e.is_dir(follow_symlinks=False)
+        ]
+    return (mtime, children, is_run)
+
 
 def _scan_tree(root: Path, max_depth: int = MAX_SCAN_DEPTH) -> list[Path]:
     """Find run directories under root, bounded in depth, with pruning.
 
     Incremental: directories whose mtime is unchanged since the last scan reuse
-    their cached listing instead of being re-read.
+    their cached listing instead of being re-read. Each tree level is probed
+    concurrently. The cache is read by the workers and written by this thread
+    between levels, so there is no concurrent mutation.
     """
     root = root.expanduser()
     if not root.is_dir():
@@ -168,43 +209,24 @@ def _scan_tree(root: Path, max_depth: int = MAX_SCAN_DEPTH) -> list[Path]:
     run_dirs: list[Path] = []
     seen: set[str] = set()
     now = time.time()
-    stack: list[tuple[Path, int]] = [(root, 0)]
-    while stack:
-        path, depth = stack.pop()
-        key = str(path)
-        seen.add(key)
-        try:
-            mtime = path.stat().st_mtime
-        except OSError:
-            continue
-        cached = _scan_cache.get(key)
-        if cached is not None and cached[0] == mtime and mtime < now - _MTIME_SETTLE:
-            _, children, is_run = cached
-        else:
-            try:
-                entries = list(os.scandir(path))
-            except OSError:
-                continue
-            is_run = any(
-                e.name == MANAGER_LOG and e.is_file() for e in entries
+    level = [(root, 0)]
+    with ThreadPoolExecutor(max_workers=_SCAN_WORKERS) as pool:
+        while level:
+            results = pool.map(
+                lambda pd: _probe_dir(pd[0], pd[1], max_depth, now), level
             )
-            # Run dirs hold no nested run dirs worth showing; don't descend.
-            if is_run or depth + 1 >= max_depth:
-                children = []
-            else:
-                children = [
-                    e.name
-                    for e in entries
-                    if e.name not in PRUNE_DIRS
-                    and not e.name.startswith(".")
-                    and e.is_dir(follow_symlinks=False)
-                ]
-            _scan_cache[key] = (mtime, children, is_run)
-        if is_run:
-            run_dirs.append(path)
-            continue
-        for name in children:
-            stack.append((path / name, depth + 1))
+            next_level: list[tuple[Path, int]] = []
+            for (path, depth), result in zip(level, results, strict=True):
+                if result is None:
+                    continue
+                seen.add(str(path))
+                _scan_cache[str(path)] = result
+                _mtime, children, is_run = result
+                if is_run:
+                    run_dirs.append(path)
+                    continue
+                next_level.extend((path / name, depth + 1) for name in children)
+            level = next_level
     # Drop cache entries for directories under this root that have disappeared.
     prefix = str(root)
     for stale in [
