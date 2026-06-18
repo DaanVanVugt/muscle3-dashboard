@@ -115,6 +115,11 @@ class Dashboard(pn.viewable.Viewer):
             )
         )
 
+        # Populate everything once now (reads the logs, colours the graph, and
+        # auto-opens the responsible component's log for an already-crashed run)
+        # so the page is correct at load instead of after the first poll.
+        self.data_manager.update()
+
         self.session_created()
 
     def _header_html(self) -> str:

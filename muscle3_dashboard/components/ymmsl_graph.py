@@ -1,4 +1,5 @@
 import base64
+import contextlib
 import html
 import logging
 import re
@@ -40,6 +41,20 @@ _BUCKET_PRIORITY = {
     "not_started": 1,
     "finished": 0,
 }
+
+# Fill intensity is a *recent activity* proxy: log bytes written since the last
+# refresh (Panel's poll interval) as a fraction of the file's total so far -- so
+# a currently-busy component glows and an idle/finished one fades. Floored so the
+# status hue stays faintly visible for quiet components.
+_EFFORT_FLOOR = 0.2
+
+
+def _blend_white(hex_color: str, t: float) -> str:
+    """Blend ``hex_color`` toward white; t=1 keeps it, t=0 is white."""
+    t = max(0.0, min(1.0, t))
+    r, g, b = (int(hex_color[i : i + 2], 16) for i in (1, 3, 5))
+    r, g, b = (round(255 + (c - 255) * t) for c in (r, g, b))
+    return f"#{r:02x}{g:02x}{b:02x}"
 
 try:
     from ymmsl2svg import ymmsl2svg
@@ -129,7 +144,9 @@ class YmmslGraphViewer(pn.viewable.Viewer):
         self.on_select = on_select
         self._base_svg: str | None = None  # rendered graph, before styling
         self._rendered = False
-        self._styled: dict[str, str] = {}  # base component name -> status bucket
+        self._styled: dict[str, tuple[str, str]] = {}  # name -> (status, fill)
+        # name -> total log bytes at the previous refresh, for the per-tick delta.
+        self._prev_bytes: dict[str, int] = {}
 
         self.graph = _ClickableSVG()
         self.graph.param.watch(self._on_click, "component")
@@ -235,18 +252,47 @@ class YmmslGraphViewer(pn.viewable.Viewer):
                 best[base] = bucket
         return best
 
-    def _apply_styling(self) -> None:
-        """Inject styling (clickable boxes + status colours) into the SVG."""
+    def _component_styles(self) -> dict[str, tuple[str, str]]:
+        """Base component name -> (status bucket, fill colour).
+
+        Fill is the status hue blended toward white by recent log activity:
+        bytes written since the previous refresh as a fraction of the total so
+        far. Advances the per-component byte baseline as a side effect.
+        """
+        statuses = self._component_statuses()
+        sizes: dict[str, int] = {}
+        for analyzers in (
+            self.data_manager.stdout_log_analyzers,
+            self.data_manager.stderr_log_analyzers,
+        ):
+            for instance, analyzer in analyzers.items():
+                base = re.sub(r"\[.*\]$", "", instance)
+                with contextlib.suppress(OSError):
+                    sizes[base] = sizes.get(base, 0) + analyzer.path.stat().st_size
+
+        styles: dict[str, tuple[str, str]] = {}
+        for name in set(statuses) | set(sizes):
+            bucket = statuses.get(name, "not_started")
+            total = sizes.get(name, 0)
+            recent = max(0, total - self._prev_bytes.get(name, total))
+            intensity = max(_EFFORT_FLOOR, recent / total if total else 0.0)
+            styles[name] = (bucket, _blend_white(_STATUS_FILL[bucket], intensity))
+        self._prev_bytes = sizes
+        return styles
+
+    def _apply_styling(self, styles: dict[str, tuple[str, str]] | None = None) -> None:
+        """Inject styling (clickable boxes + status/activity colours) into the SVG.
+
+        Crashed/killed components also get a red outline. Attribute selectors
+        (not #id) so component names with '.'/'[' don't break the CSS.
+        """
         if self._base_svg is None:
             return
-        statuses = self._component_statuses()
-        # Travels with the SVG: clicks hit the box not the label, boxes show a
-        # pointer cursor, and each box is filled by status (crashed also gets a
-        # red outline). Attribute selectors (not #id) so component names with
-        # '.'/'[' don't break CSS.
+        if styles is None:
+            styles = self._component_styles()
         css = "text{pointer-events:none}[id^='component-']{cursor:pointer}"
-        for name, bucket in sorted(statuses.items()):
-            rule = f'[id="component-{name}"]{{fill:{_STATUS_FILL[bucket]}'
+        for name, (bucket, fill) in sorted(styles.items()):
+            rule = f'[id="component-{name}"]{{fill:{fill}'
             stroke = _CRASH_STROKE.get(bucket)
             if stroke:
                 rule += f";stroke:{stroke[0]};stroke-width:{stroke[1]}"
@@ -255,7 +301,7 @@ class YmmslGraphViewer(pn.viewable.Viewer):
             "</svg>", f"<style>{css}</style></svg>", 1
         )
         self.graph.svg_b64 = base64.b64encode(styled.encode()).decode()
-        self._styled = statuses
+        self._styled = styles
 
     def _on_click(self, event) -> None:
         component = event.new
@@ -276,10 +322,11 @@ class YmmslGraphViewer(pn.viewable.Viewer):
         if not self._rendered:
             self.render()
             return
-        # The configuration is static, but component statuses evolve; restyle
-        # when they change.
-        if self._component_statuses() != self._styled:
-            self._apply_styling()
+        # The configuration is static, but statuses and recent activity evolve;
+        # sample once per tick and restyle when the styling changes.
+        styles = self._component_styles()
+        if styles != self._styled:
+            self._apply_styling(styles)
 
     def __panel__(self):
         return self.card
