@@ -1,9 +1,11 @@
+import base64
 import html
 import logging
 import re
 from pathlib import Path
 
 import panel as pn
+import param
 
 from muscle3_dashboard.constants import CARD_MARGIN
 from muscle3_dashboard.data_manager import DataManager
@@ -31,9 +33,39 @@ _LANGUAGES = {
 _PATH_RE = re.compile(r"/[^\s'\"<>():,]+")
 
 
+class _ClickableHTML(pn.reactive.ReactiveHTML):
+    """HTML that reports the data-path of a clicked element.
+
+    The HTML is passed base64-encoded so Panel's sanitizer (which strips the
+    data-path attributes we need) leaves it intact; clicking an element with a
+    data-path sets ``clicked`` to that path.
+    """
+
+    html_b64 = param.String(default="")
+    clicked = param.String(default="")
+
+    _template = (
+        '<div id="content" onclick="${script(\'click\')}" '
+        'style="width:100%"></div>'
+    )
+    _draw = (
+        "content.innerHTML = data.html_b64 ? new TextDecoder().decode("
+        "Uint8Array.from(atob(data.html_b64), c => c.charCodeAt(0))) : ''"
+    )
+    _scripts = {
+        "render": _draw,
+        "html_b64": _draw,
+        "click": (
+            "const el = state.event.target.closest('[data-path]');"
+            "if (el) { data.clicked = el.getAttribute('data-path'); }"
+        ),
+    }
+
+
 class ComponentSummaryViewer(pn.viewable.Viewer):
     """Show a clicked component: a ymmsl2svg-style port block, its program /
-    settings / description, and a read-only viewer for any files it references.
+    settings / description (with referenced text files as inline links), and a
+    read-only viewer that opens a file when its link is clicked.
     """
 
     def __init__(self, data_manager: DataManager) -> None:
@@ -41,32 +73,26 @@ class ComponentSummaryViewer(pn.viewable.Viewer):
         self.data_manager = data_manager
         self._config = None
         self._loaded = False
+        self._text_files: set[str] = set()
 
         self.block = pn.pane.SVG(None, visible=False)
-        self.details = pn.pane.HTML(
-            "<i>Click a component in the graph for details.</i>",
+        self.details = _ClickableHTML(
+            html_b64=_b64("<i>Click a component in the graph for details.</i>"),
             sizing_mode="stretch_width",
         )
-        # Link-style buttons, one per referenced text file; clicking opens it.
-        self.file_links = pn.Row(sizing_mode="stretch_width")
-        self.files_box = pn.Column(
-            pn.pane.HTML("<b>Reference files</b> (read-only):"),
-            self.file_links,
-            visible=False,
-        )
+        self.details.param.watch(self._on_path_click, "clicked")
         self.editor = pn.widgets.CodeEditor(
             value="", language="text", readonly=True, visible=False,
             sizing_mode="stretch_width", height=360,
         )
         self.card = pn.Card(
-            pn.Column(self.block, self.details, self.files_box, self.editor),
+            pn.Column(self.block, self.details, self.editor),
             title="Component",
             margin=CARD_MARGIN,
             sizing_mode="stretch_width",
             collapsible=True,
         )
 
-    # -- config -----------------------------------------------------------
     def _config_obj(self):
         if not self._loaded:
             self._loaded = True
@@ -86,33 +112,32 @@ class ComponentSummaryViewer(pn.viewable.Viewer):
             comp = {
                 str(c.name): c for c in cfg.root_model().components.values()
             }.get(component_name)
+        self.editor.visible = False
         if comp is None:
             self.block.visible = False
-            self.files.visible = False
-            self.editor.visible = False
-            self.details.object = (
+            self.details.html_b64 = _b64(
                 f"<b>{html.escape(component_name)}</b><br>"
                 "<i>Not in the configuration.</i>"
             )
             return
 
         program = cfg.programs.get(comp.implementation)
-        self.block.object = _component_block_svg(comp, component_name)
+        svg, width, height = _component_block_svg(comp, component_name)
+        self.block.object = svg
+        self.block.width = max(1, round(width / 2))  # render 2x smaller in page
+        self.block.height = max(1, round(height / 2))
         self.block.visible = True
-        self.details.object = _details_html(comp, program, cfg, component_name)
 
-        paths = _detect_files(comp, program, cfg, component_name)
-        self.file_links.objects = [self._file_button(p) for p in paths]
-        self.files_box.visible = bool(paths)
-        self.editor.visible = False
-
-    def _file_button(self, path: str) -> pn.widgets.Button:
-        button = pn.widgets.Button(
-            name=Path(path).name, button_type="light", description=path,
-            margin=(2, 4),
+        self._text_files = set(_detect_files(comp, program, cfg, component_name))
+        self.details.html_b64 = _b64(
+            _details_html(comp, program, cfg, component_name, self._text_files)
         )
-        button.on_click(lambda _event, p=path: self._open(p))
-        return button
+
+    def _on_path_click(self, event) -> None:
+        path = event.new
+        self.details.clicked = ""  # reset so the same link can be clicked again
+        if path and path in self._text_files:
+            self._open(path)
 
     def _open(self, path: str) -> None:
         try:
@@ -128,25 +153,30 @@ class ComponentSummaryViewer(pn.viewable.Viewer):
         return self.card
 
 
-# -- rendering helpers ----------------------------------------------------
+def _b64(markup: str) -> str:
+    return base64.b64encode(markup.encode()).decode()
+
+
+# -- block rendering ------------------------------------------------------
+_FONT, _TITLE_FONT = 6.0, 7.0  # px
+_CHAR = _FONT * 0.6  # rough glyph width
+_ROW = 9.0  # vertical spacing of left/right ports
+_DH, _CR = 3.0, 2.5  # diamond half-width, circle radius
+
+
 def _display_name(comp, name: str) -> str:
     mult = list(comp.multiplicity or [])
     return f"{name} [{','.join(map(str, mult))}]" if mult else name
 
 
-# Compact block metrics (about a fifth of the previous footprint).
-_FONT, _TITLE_FONT = 7.0, 8.0  # px
-_CHAR = _FONT * 0.6  # rough glyph width
-_ROW = 10.0  # vertical spacing of left/right ports
-_COL = 9.0  # horizontal spacing of bottom ports
-_DH, _CR = 3.0, 2.5  # diamond half-width, circle radius
+def _component_block_svg(comp, name: str) -> tuple[str, float, float]:
+    """A compact ymmsl2svg-style component box, returned with its (w, h).
 
-
-def _component_block_svg(comp, name: str) -> str:
-    """A compact ymmsl2svg-style component box: F_INIT open diamonds on the
-    left, O_F closed diamonds on the right, O_I closed / S open circles on the
-    bottom, each labelled with its port name. Bottom labels are drawn vertically
-    and the box is sized from the label widths so labels never overlap."""
+    F_INIT open diamonds on the left, O_F closed diamonds on the right, O_I
+    closed / S open circles on the bottom. Bottom labels stay horizontal but
+    alternate between two layers so adjacent ones don't overlap; the box is
+    sized from label widths so nothing collides.
+    """
     ports = {"F_INIT": [], "O_F": [], "O_I": [], "S": []}
     for port in comp.ports.values():
         ports.setdefault(port.operator.name, []).append(str(port.name))
@@ -156,75 +186,121 @@ def _component_block_svg(comp, name: str) -> str:
 
     lw = max((len(p) for p in left), default=0) * _CHAR
     rw = max((len(p) for p in right), default=0) * _CHAR
+    # Bottom: horizontal labels in 2 layers, so same-layer (2 apart) must clear
+    # one label width -> column spacing >= half a label.
+    half = max((len(n) for n, _ in bottom), default=0) * _CHAR / 2
+    col = max(14.0, half + 4)
     box_w = max(
-        70, len(title) * _TITLE_FONT * 0.6 + 12, lw + rw + 24, len(bottom) * _COL + 12
+        70, len(title) * _TITLE_FONT * 0.6 + 12, lw + rw + 24, len(bottom) * col
     )
     rows = max(len(left), len(right), 1)
-    box_h = max(28, 16 + rows * _ROW)
-    pad = 6
-    bottom_label = max((len(n) for n, _ in bottom), default=0) * _CHAR
-    bottom_h = bottom_label + 8 if bottom else 0
-    width, height = box_w + 2 * pad, box_h + 2 * pad + bottom_h
-    x0, y0 = pad, pad
+    box_h = max(26, 15 + rows * _ROW)
+    pad = 5
+    side = half if bottom else 0  # room for end labels to overhang
+    bottom_h = _CR + 4 + 2 * (_FONT + 1) if bottom else 0
+    width = box_w + 2 * pad + 2 * side
+    height = box_h + 2 * pad + bottom_h
+    x0, y0 = pad + side, pad
 
     el = [
-        f'<rect x="{x0}" y="{y0}" width="{box_w:.0f}" height="{box_h:.0f}" rx="4" '
-        'fill="#fff" stroke="#000" stroke-width="1.5"/>',
-        f'<text x="{x0 + box_w / 2:.0f}" y="{y0 + 11:.0f}" text-anchor="middle" '
+        f'<rect x="{x0:.0f}" y="{y0}" width="{box_w:.0f}" height="{box_h:.0f}" '
+        'rx="4" fill="#fff" stroke="#000" stroke-width="1.5"/>',
+        f'<text x="{x0 + box_w / 2:.0f}" y="{y0 + 10:.0f}" text-anchor="middle" '
         f'font-family="sans-serif" font-size="{_TITLE_FONT}" font-weight="bold">'
         f"{html.escape(title)}</text>",
     ]
 
     def diamond(cx, cy, fill):
         return (
-            f'<path d="M {cx - _DH} {cy} L {cx} {cy - _DH} L {cx + _DH} {cy} '
-            f'L {cx} {cy + _DH} Z" fill="{fill}" stroke="#000" stroke-width="1"/>'
+            f'<path d="M {cx - _DH:.0f} {cy} L {cx:.0f} {cy - _DH} '
+            f'L {cx + _DH:.0f} {cy} L {cx:.0f} {cy + _DH} Z" '
+            f'fill="{fill}" stroke="#000" stroke-width="1"/>'
         )
 
     for i, p in enumerate(left):
-        cy = y0 + 22 + i * _ROW
+        cy = y0 + 20 + i * _ROW
         el.append(diamond(x0, cy, "#fff"))
         el.append(
-            f'<text x="{x0 + _DH + 3:.0f}" y="{cy + 2.5:.0f}" '
+            f'<text x="{x0 + _DH + 3:.0f}" y="{cy + 2:.0f}" '
             f'font-family="sans-serif" font-size="{_FONT}">{html.escape(p)}</text>'
         )
     for i, p in enumerate(right):
-        cy = y0 + 22 + i * _ROW
+        cy = y0 + 20 + i * _ROW
         el.append(diamond(x0 + box_w, cy, "#000"))
         el.append(
-            f'<text x="{x0 + box_w - _DH - 3:.0f}" y="{cy + 2.5:.0f}" '
+            f'<text x="{x0 + box_w - _DH - 3:.0f}" y="{cy + 2:.0f}" '
             f'text-anchor="end" font-family="sans-serif" font-size="{_FONT}">'
             f"{html.escape(p)}</text>"
         )
     for j, (p, op) in enumerate(bottom):
-        cx = x0 + 8 + j * _COL
+        cx = x0 + col * (j + 0.5)
         cy = y0 + box_h
         fill = "#000" if op == "O_I" else "#fff"
         el.append(
-            f'<circle cx="{cx:.0f}" cy="{cy:.0f}" r="{_CR}" fill="{fill}" '
+            f'<circle cx="{cx:.0f}" cy="{cy}" r="{_CR}" fill="{fill}" '
             'stroke="#000" stroke-width="1"/>'
         )
-        ty = cy + _CR + 2
-        # vertical label so adjacent bottom ports don't overlap
+        ty = cy + _CR + 6 + (j % 2) * (_FONT + 1)  # two staggered layers
         el.append(
-            f'<text x="{cx:.0f}" y="{ty:.0f}" font-family="sans-serif" '
-            f'font-size="{_FONT}" transform="rotate(90 {cx:.0f} {ty:.0f})">'
-            f"{html.escape(p)}</text>"
+            f'<text x="{cx:.0f}" y="{ty:.0f}" text-anchor="middle" '
+            f'font-family="sans-serif" font-size="{_FONT}">{html.escape(p)}</text>'
         )
 
-    return (
+    svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:.0f}" '
         f'height="{height:.0f}">{"".join(el)}</svg>'
     )
+    return svg, width, height
 
 
-def _details_html(comp, program, cfg, name: str) -> str:
+# -- details rendering ----------------------------------------------------
+def _linkify(escaped_text: str, paths: set[str]) -> str:
+    """Turn detected text-file paths in already-escaped text into links."""
+    for path in sorted(paths, key=len, reverse=True):
+        esc = html.escape(path)
+        if esc in escaped_text:
+            escaped_text = escaped_text.replace(
+                esc,
+                f'<a data-path="{esc}" style="color:#1976d2;cursor:pointer;'
+                f'text-decoration:underline">{esc}</a>',
+            )
+    return escaped_text
+
+
+def _details_html(comp, program, cfg, name: str, text_files: set[str]) -> str:
+    def link(raw: str) -> str:
+        return _linkify(html.escape(raw), text_files)
+
     sections = []
     description = (comp.description or "").strip()
     if description:
         sections.append(f"<p>{html.escape(description)}</p>")
     if program is not None:
-        sections.append(_program_html(program))
+        rows = []
+        executable = getattr(program, "executable", None)
+        args = list(getattr(program, "args", []) or [])
+        if executable is not None:
+            command = " ".join([str(executable), *args])
+            rows.append(f"<div><b>Command:</b> <code>{link(command)}</code></div>")
+        venv = getattr(program, "virtual_env", None)
+        if venv:
+            rows.append(
+                f"<div><b>venv:</b> <code>{html.escape(str(venv))}</code></div>"
+            )
+        modules = list(getattr(program, "modules", []) or [])
+        if modules:
+            rows.append(
+                "<div><b>Modules:</b> "
+                f"<code>{html.escape(', '.join(map(str, modules)))}</code></div>"
+            )
+        script = getattr(program, "script", None)
+        if script:
+            rows.append(
+                "<div><b>Script:</b><pre style='margin:2px 0;max-height:12em;"
+                "overflow:auto;background:#f5f5f5;padding:4px'>"
+                f"{link(str(script))}</pre></div>"
+            )
+        sections.append("".join(rows))
     prefix = name + "."
     settings = {
         str(key)[len(prefix) :]: value
@@ -232,42 +308,17 @@ def _details_html(comp, program, cfg, name: str) -> str:
         if str(key).startswith(prefix)
     }
     if settings:
-        body = "\n".join(f"  {k}: {v!r}," for k, v in sorted(settings.items()))
+        lines = "\n".join(
+            f"  {html.escape(k)}: {link(repr(v))}," for k, v in sorted(settings.items())
+        )
         sections.append(
             "<b>Settings</b><pre style='margin:2px 0;white-space:pre-wrap'>"
-            f"{{\n{html.escape(body)}\n}}</pre>"
+            f"{{\n{lines}\n}}</pre>"
         )
     return "".join(sections)
 
 
-def _program_html(program) -> str:
-    rows = []
-    executable = getattr(program, "executable", None)
-    args = list(getattr(program, "args", []) or [])
-    if executable is not None:
-        command = html.escape(" ".join([str(executable), *args]))
-        rows.append(f"<div><b>Command:</b> <code>{command}</code></div>")
-    venv = getattr(program, "virtual_env", None)
-    if venv:
-        rows.append(
-            f"<div><b>venv:</b> <code>{html.escape(str(venv))}</code></div>"
-        )
-    modules = list(getattr(program, "modules", []) or [])
-    if modules:
-        rows.append(
-            "<div><b>Modules:</b> "
-            f"<code>{html.escape(', '.join(map(str, modules)))}</code></div>"
-        )
-    script = getattr(program, "script", None)
-    if script:
-        rows.append(
-            "<div><b>Script:</b><pre style='margin:2px 0;max-height:12em;"
-            "overflow:auto;background:#f5f5f5;padding:4px'>"
-            f"{html.escape(str(script))}</pre></div>"
-        )
-    return "".join(rows)
-
-
+# -- file detection -------------------------------------------------------
 def _is_text_file(path: Path) -> bool:
     """Heuristic: a readable file with no NUL byte in its first 4 KiB."""
     try:
@@ -283,7 +334,6 @@ def _detect_files(comp, program, cfg, name: str) -> list[str]:
     if program is not None:
         blobs.append(str(getattr(program, "executable", "") or ""))
         blobs.extend(str(a) for a in getattr(program, "args", []) or [])
-        blobs.append(str(getattr(program, "virtual_env", "") or ""))
         blobs.append(str(getattr(program, "script", "") or ""))
     prefix = name + "."
     for key, value in cfg.settings.items():
