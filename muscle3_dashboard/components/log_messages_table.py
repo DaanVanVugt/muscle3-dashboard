@@ -11,14 +11,20 @@ _LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "unknown"]
 #: Highlight colours for nonzero counts of the levels that need attention.
 _LEVEL_COLORS = {"WARNING": "#ef6c00", "ERROR": "#c62828", "CRITICAL": "#c62828"}
 
-#: Detect a log level near the start of a component log line, after an optional
-#: ANSI colour code and up to three leading date/time tokens. Handles both
-#: ``INFO:logger:msg`` (stdlib logging) and ``2026-06-18 08:55 INFO ...`` forms.
+#: Detect a log level as a delimited token in the start of a component log
+#: line. Case-insensitive and position-tolerant so it covers ``INFO:logger:msg``
+#: (stdlib), ``[INFO] msg``, ``nice_inv[0] 2026-06-18 14:32 INFO: msg`` (level
+#: after an instance/timestamp prefix) and IMAS' ``Warning : ...`` lines.
 _LEVEL_RE = re.compile(
-    r"^(?:\x1b\[[0-9;]*m)?\s*(?:[\d:.,\-]+\s+){0,3}"
-    r"(DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL|FATAL)\b"
+    r"(?:^|[\s\[(<|:])(DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL|FATAL|TRACE|NOTICE)\b",
+    re.IGNORECASE,
 )
-_LEVEL_ALIASES = {"WARN": "WARNING", "FATAL": "CRITICAL"}
+_LEVEL_ALIASES = {
+    "WARN": "WARNING",
+    "FATAL": "CRITICAL",
+    "TRACE": "DEBUG",
+    "NOTICE": "INFO",
+}
 
 
 def _base_name(source: str) -> str:
@@ -31,11 +37,16 @@ def _base_name(source: str) -> str:
 
 
 def _detect_level(line: str) -> str | None:
-    """Return the log level of a component log line, or None if not found."""
-    match = _LEVEL_RE.match(line)
+    """Return the log level of a component log line, or None if not found.
+
+    Only the start of the line is searched (levels live in the prefix, not the
+    message body), reducing false positives from words like "error" in text.
+    """
+    match = _LEVEL_RE.search(line[:64])
     if match is None:
         return None
-    return _LEVEL_ALIASES.get(match.group(1), match.group(1))
+    level = match.group(1).upper()
+    return _LEVEL_ALIASES.get(level, level)
 
 
 def _count_html(level: str, count: int) -> str:
