@@ -1,6 +1,5 @@
 import html
 import re
-from pathlib import Path
 
 import panel as pn
 
@@ -49,12 +48,9 @@ class LogFilesViewer(pn.viewable.Viewer):
         self.data_manager.param.watch(self.update, "data_updated")
         self.log_path = self.data_manager.run_folder
         self.manager_terminal = self.log_terminal()
-        self.manager_pane = self.log_pane(
-            self.manager_terminal,
-            self.data_manager.manager_log_analyzer.path,
-        )
+        self.manager_pane = self.manager_terminal
         self.component_terminals: dict[str, pn.widgets.Terminal] = {}
-        self.component_panes: dict[str, pn.Column] = {}
+        self.component_panes: dict[str, pn.widgets.Terminal] = {}
         self._has_output: set[str] = set()
         self.source = MANAGER
 
@@ -131,20 +127,35 @@ class LogFilesViewer(pn.viewable.Viewer):
 
     def _show_current(self, *_events) -> None:
         """Point the container at the currently selected log"""
+        path = None
         if self.source == MANAGER:
             self.stream_toggle.disabled = True
             self.instance_slot.visible = False
             shown = MANAGER
             pane = self.manager_pane
+            path = self.data_manager.manager_log_analyzer.path
         else:
             self.stream_toggle.disabled = False
             instance = self._instance or self.source
-            shown = f"{instance} {self.stream_toggle.value}"
-            key = f"{instance} - {self.stream_toggle.value}"
+            stream = self.stream_toggle.value
+            shown = f"{instance} {stream}"
+            key = f"{instance} - {stream}"
             pane = self.component_panes.get(
                 key, pn.pane.Markdown(f"No output for `{shown}` yet.")
             )
-        self.title_pane.object = f"<b>Log files</b> — {html.escape(shown)}"
+            analyzers = (
+                self.data_manager.stdout_log_analyzers
+                if stream == "stdout"
+                else self.data_manager.stderr_log_analyzers
+            )
+            analyzer = analyzers.get(instance)
+            path = analyzer.path if analyzer is not None else None
+        # The log file path sits in the subtitle and copies to the clipboard
+        # on click.
+        title = f"<b>Log files</b> — {html.escape(shown)}"
+        if path is not None:
+            title += "&nbsp;&nbsp;" + path_html(path, monospace=True)
+        self.title_pane.object = title
         self.container.object = pane
 
     def show_source(self, source: str) -> None:
@@ -166,21 +177,6 @@ class LogFilesViewer(pn.viewable.Viewer):
             )
         self._show_current()
 
-    def log_pane(self, terminal: pn.widgets.Terminal, path: Path) -> pn.Column:
-        """Get basic log panel with terminal and filepath message.
-
-        The path copies to the clipboard on click and links to the file.
-        """
-        return pn.Column(
-            terminal,
-            pn.pane.HTML(
-                f"Logs are truncated at {MAX_LINES} lines. Full log: "
-                + path_html(path, monospace=True),
-                sizing_mode="stretch_width",
-            ),
-            sizing_mode="stretch_width",
-        )
-
     def log_terminal(self) -> pn.widgets.Terminal:
         """Get basic terminal"""
         return pn.widgets.Terminal(
@@ -197,26 +193,15 @@ class LogFilesViewer(pn.viewable.Viewer):
             self.manager_terminal.write(line)
 
         created = False
-        for log_lines, analyzers, stream in [
-            (
-                self.data_manager.stdout_log_lines,
-                self.data_manager.stdout_log_analyzers,
-                "stdout",
-            ),
-            (
-                self.data_manager.stderr_log_lines,
-                self.data_manager.stderr_log_analyzers,
-                "stderr",
-            ),
+        for log_lines, stream in [
+            (self.data_manager.stdout_log_lines, "stdout"),
+            (self.data_manager.stderr_log_lines, "stderr"),
         ]:
             for component, lines in log_lines.items():
                 key = f"{component} - {stream}"
                 if key not in self.component_terminals:
                     self.component_terminals[key] = self.log_terminal()
-                    self.component_panes[key] = self.log_pane(
-                        self.component_terminals[key],
-                        analyzers[component].path,
-                    )
+                    self.component_panes[key] = self.component_terminals[key]
                     created = True
                 if lines:
                     self._has_output.add(key)
