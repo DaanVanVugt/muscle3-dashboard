@@ -124,8 +124,8 @@ class ComponentSummaryViewer(pn.viewable.Viewer):
         program = cfg.programs.get(comp.implementation)
         svg, width, height = _component_block_svg(comp, component_name)
         self.block.object = svg
-        self.block.width = max(1, round(width / 2))  # render 2x smaller in page
-        self.block.height = max(1, round(height / 2))
+        self.block.width = max(1, round(width * _DISPLAY_SCALE))
+        self.block.height = max(1, round(height * _DISPLAY_SCALE))
         self.block.visible = True
 
         self._text_files = set(_detect_files(comp, program, cfg, component_name))
@@ -158,6 +158,8 @@ def _b64(markup: str) -> str:
 
 
 # -- block rendering ------------------------------------------------------
+#: On-page display scale for the component block (intrinsic px * this).
+_DISPLAY_SCALE = 1.5
 _FONT, _TITLE_FONT = 6.0, 7.0  # px
 _CHAR = _FONT * 0.6  # rough glyph width
 _ROW = 9.0  # vertical spacing of left/right ports
