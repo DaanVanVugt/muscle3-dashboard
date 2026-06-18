@@ -236,32 +236,42 @@ def _runs_table_html(runs: list[Run]) -> str:
     )
 
 
+# Style a Button to read as an inline text link.
+_LINK_CSS = """
+.bk-btn, .bk-btn-default {
+  background: none; border: none; padding: 0; margin: 0;
+  color: #1976d2; text-decoration: underline; cursor: pointer; font: inherit;
+}
+"""
+
+
+def _scan_summary_html(index) -> str:
+    if index.last_scan is not None:
+        when = f"last scan {_age(index.last_scan)} ago ({index.scan_seconds:.2f}s)"
+    else:
+        when = "first scan pending"
+    roots = ", ".join(f"<code>{html.escape(str(r))}</code>" for r in index.roots)
+    return (
+        f'<span style="opacity:0.7">{len(index.runs)} runs · {when} · '
+        f"roots (edit <code>{html.escape(str(ROOTS_FILE))}</code>): {roots}</span>"
+    )
+
+
 def index_app():
-    """Landing page: run list and scan status."""
+    """Landing page: run list, with the scan summary + roots at the bottom."""
     assert _index is not None
     table = pn.pane.HTML(_runs_table_html(_index.runs), sizing_mode="stretch_width")
-    status = pn.pane.Markdown()
-    roots_md = pn.pane.Markdown()
-    rescan_button = pn.widgets.Button(name="Rescan now")
+    summary = pn.pane.HTML(sizing_mode="stretch_width")
+    rescan = pn.widgets.Button(
+        name="rescan now", stylesheets=[_LINK_CSS], margin=(0, 8)
+    )
 
     def refresh(*_events) -> None:
+        _index.request_rescan()  # scan again after every refresh
         table.object = _runs_table_html(_index.runs)
-        roots_md.object = (
-            f'<span title="edit {ROOTS_FILE}, one path per line, applied '
-            'on rescan" style="cursor:help">Scanned roots:</span> '
-            + ", ".join(f"`{root}`" for root in _index.roots)
-        )
-        if _index.scanning:
-            status.object = "*Scanning…*"
-        elif _index.last_scan is not None:
-            status.object = (
-                f"{len(_index.runs)} runs; last scan {_age(_index.last_scan)} "
-                f"ago took {_index.scan_seconds:.1f}s"
-            )
-        else:
-            status.object = "*First scan pending…*"
+        summary.object = _scan_summary_html(_index)
 
-    rescan_button.on_click(lambda _event: _index.request_rescan())
+    rescan.on_click(lambda _event: _index.request_rescan())
     # Defer the periodic callback to session load: adding it during the
     # app-factory call makes Bokeh replay a SessionCallbackAdded event on
     # the first document unhold, raising "a callback ... has already been
@@ -278,13 +288,7 @@ def index_app():
 
     return pn.template.VanillaTemplate(
         title="m3dash | MUSCLE3 runs",
-        main=[
-            pn.Column(
-                pn.Row(status, rescan_button),
-                table,
-                roots_md,
-            )
-        ],
+        main=[pn.Column(table, pn.Row(summary, rescan))],
     )
 
 
