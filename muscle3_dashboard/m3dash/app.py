@@ -130,12 +130,13 @@ def _age(timestamp: datetime | None) -> str:
     return f"{int(seconds / 86400)}d"
 
 
-# Status dot colours: red = needs attention, green = alive, grey = done/idle.
+# Status dot colours: blue = running, green = finished OK, red = failed,
+# grey = not started / unknown.
 _DOT_COLORS = {
-    RunStatus.RUNNING: "#2e7d32",
+    RunStatus.RUNNING: "#1976d2",
+    RunStatus.FINISHED: "#2e7d32",
     RunStatus.FAILED: "#d32f2f",
-    RunStatus.FINISHED: "#9e9e9e",
-    RunStatus.UNKNOWN: "#bdbdbd",
+    RunStatus.UNKNOWN: "#9e9e9e",
 }
 
 

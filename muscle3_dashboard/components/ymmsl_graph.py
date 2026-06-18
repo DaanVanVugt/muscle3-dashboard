@@ -19,9 +19,9 @@ logger = logging.getLogger(__name__)
 # "crashed" is the likely culprit (a real non-zero exit); "killed" is collateral
 # (SIGKILL -9 / generic crash when another component failed first).
 _STATUS_FILL = {
-    "not_started": "#ffe0b2",  # amber: not started / starting up
-    "running": "#c8e6c9",  # green: registered / running
-    "finished": "#cfd8dc",  # blue-grey: finished / deregistered
+    "not_started": "#eeeeee",  # grey: not started / starting up
+    "running": "#bbdefb",  # blue: registered / running
+    "finished": "#c8e6c9",  # green: finished / deregistered
     "killed": "#ffcdd2",  # pale red: collateral crash
     "crashed": "#ef9a9a",  # strong red: responsible / likely culprit
 }
