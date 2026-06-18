@@ -158,6 +158,21 @@ def _common_prefix_len(a: str, b: str) -> int:
     return cut
 
 
+def _common_dir(paths: list[str]) -> str:
+    """Directory prefix shared by every path (no trailing slash)."""
+    if not paths:
+        return ""
+    prefix = paths[0]
+    for path in paths[1:]:
+        prefix = prefix[: _common_prefix_len(prefix, path)]
+    common = prefix.rstrip("/")
+    # If the common part is itself a whole run path (e.g. a single run), back
+    # off to its parent so the run still shows a name.
+    if common and any(path == common for path in paths):
+        common = common.rsplit("/", 1)[0]
+    return common
+
+
 def _updated_html(timestamp: datetime | None) -> str:
     if timestamp is None:
         return "?"
@@ -170,35 +185,44 @@ def _updated_html(timestamp: datetime | None) -> str:
 def _runs_table_html(runs: list[Run]) -> str:
     """Render the run list as an HTML table keyed on the run directory.
 
-    Runs are sorted by path; each row's clickable run-directory path opens
-    /run, with the part shared with the row above blanked out (and aligned, in
-    a monospace cell) so only the differing tail stands out. A status dot
-    precedes the path. Per-component web UIs live on the run page, not here.
+    Runs are sorted newest-first; the directory prefix common to all runs is
+    dropped (shown once above the table) so each row's clickable path shows only
+    its distinguishing tail and opens /run. A status dot precedes the path.
+    Per-component web UIs live on the run page, not here.
     """
+    if not runs:
+        return (
+            '<table style="border-spacing:12px 4px">'
+            '<tr><td><i>No runs found yet.</i></td></tr></table>'
+        )
+    common = _common_dir([str(run.run_dir) for run in runs])
+    epoch = datetime.fromtimestamp(0)
     rows = []
-    previous = ""
-    for run in sorted(runs, key=lambda r: str(r.run_dir)):
+    for run in sorted(runs, key=lambda r: r.last_updated or epoch, reverse=True):
         path = str(run.run_dir)
-        cut = _common_prefix_len(previous, path)
-        previous = path
+        rel = path[len(common) :].lstrip("/") if common else path
         query = urllib.parse.urlencode({"dir": path})
         dot = _DOT_COLORS[run.status]
         rows.append(
             "<tr>"
-            '<td style="font-family:monospace;white-space:pre">'
+            '<td style="font-family:monospace">'
             f'<span style="color:{dot}" title="{html.escape(run.status.value)}">'
             "●</span> "
-            f'{" " * cut}'
-            f'<a href="run?{query}" target="_blank">{html.escape(path[cut:])}</a>'
+            f'<a href="run?{query}" target="_blank">{html.escape(rel)}</a>'
             "</td>"
             f'<td style="white-space:nowrap">{_updated_html(run.last_updated)}</td>'
             f"<td>{html.escape(_job_ref(run))}</td>"
             "</tr>"
         )
-    if not rows:
-        rows = ['<tr><td colspan="3"><i>No runs found yet.</i></td></tr>']
+    caption = (
+        f'<div style="opacity:0.7;margin-bottom:6px">in '
+        f"<code>{html.escape(common)}/</code></div>"
+        if common
+        else ""
+    )
     return (
-        '<table style="border-spacing:12px 4px">'
+        caption
+        + '<table style="border-spacing:12px 4px">'
         "<tr><th>Run directory</th><th>Updated</th><th>Job/PID</th></tr>"
         + "".join(rows)
         + "</table>"
