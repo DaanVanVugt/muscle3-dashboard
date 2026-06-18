@@ -8,8 +8,27 @@ import param
 
 from muscle3_dashboard.constants import CARD_MARGIN
 from muscle3_dashboard.data_manager import DataManager
+from muscle3_dashboard.loganalyzer.manager import ComponentStatus
 
 logger = logging.getLogger(__name__)
+
+# Component box fill per status bucket (light tints; black labels stay readable).
+# muscle3 has no distinct "running" status -- REGISTERED is the active state.
+_STATUS_FILL = {
+    "not_started": "#ffe0b2",  # amber: not started / starting up
+    "running": "#c8e6c9",  # green: registered / running
+    "finished": "#cfd8dc",  # blue-grey: finished / deregistered
+    "crashed": "#ffcdd2",  # red: non-zero exit / crashed
+}
+_CRASHED_STROKE = "#c62828"
+_RUNNING_STATUSES = {
+    ComponentStatus.PLANNED,
+    ComponentStatus.INSTANTIATING,
+    ComponentStatus.REGISTERED,
+}
+_FINISHED_STATUSES = {ComponentStatus.DEREGISTERED, ComponentStatus.FINISHED}
+# When a multiplicity's instances differ, show the most attention-worthy state.
+_BUCKET_PRIORITY = {"crashed": 3, "running": 2, "not_started": 1, "finished": 0}
 
 try:
     from ymmsl2svg import ymmsl2svg
@@ -38,12 +57,25 @@ class _ClickableSVG(pn.reactive.ReactiveHTML):
     component = param.String(default="")
 
     _template = (
+        '<div id="wrap" style="position:relative;width:100%">'
         '<div id="graph" onclick="${script(\'click\')}" '
+        'onmousemove="${script(\'hover\')}" onmouseleave="${script(\'leave\')}" '
         'style="width:100%;overflow:auto"></div>'
+        '<div id="tip" style="position:fixed;display:none;pointer-events:none;'
+        "background:#222;color:#fff;padding:2px 6px;border-radius:3px;"
+        'font:12px sans-serif;z-index:1000;white-space:nowrap"></div>'
+        "</div>"
     )
+    # Decode the base64 SVG into the div, then move every <title> into a
+    # data-tip attribute and drop it: native SVG <title> tooltips have a fixed
+    # ~1s browser delay, so we render our own instant tooltip from data-tip.
     _draw = (
         "graph.innerHTML = data.svg_b64 ? new TextDecoder().decode("
-        "Uint8Array.from(atob(data.svg_b64), c => c.charCodeAt(0))) : ''"
+        "Uint8Array.from(atob(data.svg_b64), c => c.charCodeAt(0))) : '';"
+        "graph.querySelectorAll('title').forEach(t => {"
+        "  if (t.parentNode) { t.parentNode.setAttribute('data-tip', t.textContent); }"
+        "  t.remove();"
+        "});"
     )
     _scripts = {
         "render": _draw,
@@ -52,6 +84,17 @@ class _ClickableSVG(pn.reactive.ReactiveHTML):
             "const el = state.event.target.closest('[id^=\"component-\"]');"
             "if (el) { data.component = el.id.slice('component-'.length); }"
         ),
+        "hover": (
+            "const e = state.event;"
+            "const el = e.target.closest('[data-tip]');"
+            "if (el) {"
+            "  tip.textContent = el.getAttribute('data-tip');"
+            "  tip.style.left = (e.clientX + 12) + 'px';"
+            "  tip.style.top = (e.clientY + 12) + 'px';"
+            "  tip.style.display = 'block';"
+            "} else { tip.style.display = 'none'; }"
+        ),
+        "leave": "tip.style.display = 'none'",
     }
 
 
@@ -60,9 +103,9 @@ class YmmslGraphViewer(pn.viewable.Viewer):
 
     Visualization needs the optional ``ymmsl2svg`` dependency
     (``pip install muscle3-dashboard[graph]``); without it, a missing config,
-    or an unvisualizable model, a short message is shown instead. Crashed
-    components are outlined; clicking a component invokes ``on_select`` with
-    its name (used to show that component's logs).
+    or an unvisualizable model, a short message is shown instead. Component
+    boxes are coloured by status (crashed also outlined); clicking a component
+    invokes ``on_select`` with its name (used to show that component's logs).
     """
 
     def __init__(
@@ -73,9 +116,9 @@ class YmmslGraphViewer(pn.viewable.Viewer):
         super().__init__()
         self.data_manager = data_manager
         self.on_select = on_select
-        self._base_svg: str | None = None  # rendered graph, before highlight
+        self._base_svg: str | None = None  # rendered graph, before styling
         self._rendered = False
-        self._highlighted: frozenset[str] = frozenset()
+        self._styled: dict[str, str] = {}  # base component name -> status bucket
 
         self.graph = _ClickableSVG()
         self.graph.param.watch(self._on_click, "component")
@@ -116,38 +159,56 @@ class YmmslGraphViewer(pn.viewable.Viewer):
         self._rendered = True
         self.graph.visible = True
         self.message.visible = False
-        self._apply_highlight()
+        self._apply_styling()
 
-    def _crashed_components(self) -> frozenset[str]:
-        """Component names with a non-zero exit / crash, for highlighting.
+    def _bucket(self, component) -> str:
+        """Map a component's status / exit code to a colour bucket."""
+        message = component.exit_code_message
+        if message and message != "0":
+            return "crashed"
+        if component.status in _RUNNING_STATUSES:
+            return "running"
+        if component.status in _FINISHED_STATUSES:
+            return "finished"
+        return "not_started"
 
-        Strips a multiplicity suffix (``worker[0]`` -> ``worker``) so it matches
-        the component box ymmsl2svg draws for the whole multiplicity.
+    def _component_statuses(self) -> dict[str, str]:
+        """Base component name -> status bucket for colouring.
+
+        Strips a multiplicity suffix (``worker[0]`` -> ``worker``) so instances
+        map to the single box ymmsl2svg draws, keeping the highest-priority
+        bucket when a multiplicity's instances differ.
         """
-        names = set()
+        best: dict[str, str] = {}
         components = self.data_manager.manager_log_analyzer.components
         for name, component in components.items():
-            message = component.exit_code_message
-            if message and message != "0":
-                names.add(re.sub(r"\[.*\]$", "", name))
-        return frozenset(names)
+            base = re.sub(r"\[.*\]$", "", name)
+            bucket = self._bucket(component)
+            current = best.get(base)
+            if current is None or _BUCKET_PRIORITY[bucket] > _BUCKET_PRIORITY[current]:
+                best[base] = bucket
+        return best
 
-    def _apply_highlight(self) -> None:
-        """Inject styling (clickable boxes + crash outline) into the SVG."""
+    def _apply_styling(self) -> None:
+        """Inject styling (clickable boxes + status colours) into the SVG."""
         if self._base_svg is None:
             return
-        crashed = self._crashed_components()
+        statuses = self._component_statuses()
         # Travels with the SVG: clicks hit the box not the label, boxes show a
-        # pointer cursor, and crashed boxes get a red outline. Attribute
-        # selectors (not #id) so component names with '.'/'[' don't break CSS.
+        # pointer cursor, and each box is filled by status (crashed also gets a
+        # red outline). Attribute selectors (not #id) so component names with
+        # '.'/'[' don't break CSS.
         css = "text{pointer-events:none}[id^='component-']{cursor:pointer}"
-        for name in sorted(crashed):
-            css += f'[id="component-{name}"]{{stroke:#c62828;stroke-width:4}}'
+        for name, bucket in sorted(statuses.items()):
+            rule = f'[id="component-{name}"]{{fill:{_STATUS_FILL[bucket]}'
+            if bucket == "crashed":
+                rule += f";stroke:{_CRASHED_STROKE};stroke-width:4"
+            css += rule + "}"
         styled = self._base_svg.replace(
             "</svg>", f"<style>{css}</style></svg>", 1
         )
         self.graph.svg_b64 = base64.b64encode(styled.encode()).decode()
-        self._highlighted = crashed
+        self._styled = statuses
 
     def _on_click(self, event) -> None:
         component = event.new
@@ -167,10 +228,10 @@ class YmmslGraphViewer(pn.viewable.Viewer):
         if not self._rendered:
             self.render()
             return
-        # The configuration is static, but crash state evolves; restyle when it
-        # changes.
-        if self._crashed_components() != self._highlighted:
-            self._apply_highlight()
+        # The configuration is static, but component statuses evolve; restyle
+        # when they change.
+        if self._component_statuses() != self._styled:
+            self._apply_styling()
 
     def __panel__(self):
         return self.card
