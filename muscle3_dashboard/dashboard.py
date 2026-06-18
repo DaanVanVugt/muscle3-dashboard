@@ -13,7 +13,7 @@ from muscle3_dashboard.components.log_messages_table import LogMessagesTableView
 from muscle3_dashboard.components.profiling_information import (
     ProfilingInformationViewer,
 )
-from muscle3_dashboard.components.status_table import StatusTableViewer
+from muscle3_dashboard.components.web_uis import WebUIsViewer
 from muscle3_dashboard.components.ymmsl_graph import YmmslGraphViewer
 from muscle3_dashboard.data_manager import DataManager
 from muscle3_dashboard.pathlink import path_html
@@ -54,8 +54,8 @@ def _dashboard_version() -> str:
 class Dashboard(pn.viewable.Viewer):
     """Main dashboard for muscle3_dashboard app.
 
-    ``web_urls`` optionally maps a component name to an HTML link to its
-    served UI; when given it is shown as a column in the status table.
+    ``web_urls`` (component name -> served-UI link) is shown in the Web UIs
+    card when non-empty.
     """
 
     def __init__(
@@ -72,16 +72,15 @@ class Dashboard(pn.viewable.Viewer):
 
         self.data_manager = DataManager(run_folder)
 
-        self.status_table_viewer = StatusTableViewer(
-            self.data_manager,
-            web_urls=web_urls,
-            on_select=self._show_logs_for,
-        )
         self.log_messages_table_viewer = LogMessagesTableViewer(
             self.data_manager,
             on_select=self._show_logs_for,
         )
-        self.ymmsl_graph_viewer = YmmslGraphViewer(self.data_manager)
+        self.ymmsl_graph_viewer = YmmslGraphViewer(
+            self.data_manager,
+            on_select=self._show_logs_for,
+        )
+        self.web_uis_viewer = WebUIsViewer(web_urls)
         self.log_files_viewer = LogFilesViewer(self.data_manager)
         self.crash_analysis_viewer = CrashAnalysisViewer(self.data_manager)
         self.profiling_information_viewer = ProfilingInformationViewer(
@@ -96,17 +95,14 @@ class Dashboard(pn.viewable.Viewer):
         self.template.header.append(self.header_pane)
         self.data_manager.param.watch(self._update_header, "data_updated")
 
-        # Single page, top to bottom: the component status table beside the
-        # simulation graph (to be linked on hover, nodes coloured by status
-        # once the ymmsl2svg graph lands), then all log messages, then log
-        # files, then crash analysis.
+        # Single page, top to bottom: the simulation graph (crashed components
+        # outlined, click a component to show its logs), the Web UIs card (when
+        # actors expose served UIs), then all log messages, then log files, then
+        # crash analysis.
         self.template.main.append(
             pn.Column(
-                pn.Row(
-                    self.status_table_viewer,
-                    self.ymmsl_graph_viewer,
-                    sizing_mode="stretch_width",
-                ),
+                self.ymmsl_graph_viewer,
+                self.web_uis_viewer,
                 self.log_messages_table_viewer,
                 self.log_files_viewer,
                 self.crash_analysis_viewer,
@@ -147,13 +143,12 @@ class Dashboard(pn.viewable.Viewer):
         self.header_pane.object = self._header_html()
 
     def _show_logs_for(self, source: str) -> None:
-        """Show the source's log and mirror the selection in both tables.
+        """Show the source's log and mirror the selection in the messages table.
 
         Setting a table's selection programmatically does not fire its
         click handler, so this cannot loop.
         """
         self.log_files_viewer.show_source(source)
-        self.status_table_viewer.select_source(source)
         self.log_messages_table_viewer.select_source(source)
 
     def session_created(self) -> None:

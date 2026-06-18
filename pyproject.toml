@@ -24,7 +24,7 @@ requires-python = ">=3.11"
 graph = [
     # Renders the simulation graph card from configuration.ymmsl.
     # Not on PyPI yet (depends on an unreleased ymmsl-python); pulled from git.
-    "ymmsl2svg @ git+https://github.com/DaanVanVugt/ymmsl2svg.git",
+    "ymmsl2svg @ git+https://github.com/DaanVanVugt/ymmsl2svg.git@feat/conduit-hover-labels",
 ]
 dev = [
     "ruff",
