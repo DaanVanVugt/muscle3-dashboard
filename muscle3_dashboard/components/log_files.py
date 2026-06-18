@@ -1,4 +1,5 @@
 import html
+import re
 from pathlib import Path
 
 import panel as pn
@@ -8,6 +9,17 @@ from muscle3_dashboard.data_manager import DataManager
 from muscle3_dashboard.pathlink import path_html
 
 MANAGER = "muscle_manager"
+
+
+def _base_name(source: str) -> str:
+    """Strip a multiplicity suffix: ``nice_inv[4]`` -> ``nice_inv``."""
+    return re.sub(r"\[.*\]$", "", source)
+
+
+def _instance_sort_key(name: str):
+    """Sort instances by their numeric index (``nice_inv[2]`` before ``[10]``)."""
+    match = re.search(r"\[(\d+)\]", name)
+    return (int(match.group(1)),) if match else (-1,)
 
 
 class LogFilesViewer(pn.viewable.Viewer):
@@ -36,6 +48,12 @@ class LogFilesViewer(pn.viewable.Viewer):
         self._has_output: set[str] = set()
         self.source = MANAGER
 
+        # Picks which instance of a multi-instance component (e.g. nice_inv[4])
+        # to show; hidden for the manager log and single-instance components.
+        self.instance_selector = pn.widgets.Select(
+            options=[], align="center", width=160, visible=False
+        )
+        self.instance_selector.param.watch(self._show_current, "value")
         self.stream_toggle = pn.widgets.RadioButtonGroup(
             options=["stdout", "stderr"],
             value="stdout",
@@ -54,22 +72,37 @@ class LogFilesViewer(pn.viewable.Viewer):
             header=pn.Row(
                 self.title_pane,
                 pn.HSpacer(),
+                self.instance_selector,
                 self.stream_toggle,
                 sizing_mode="stretch_width",
             ),
         )
         self._show_current()
 
+    def _instances_for(self, source: str) -> list[str]:
+        """Instance log names for a component (its own name if single)."""
+        matches = sorted(
+            (
+                name
+                for name in self.data_manager.stdout_log_analyzers
+                if _base_name(name) == source
+            ),
+            key=_instance_sort_key,
+        )
+        return matches or [source]
+
     def _show_current(self, *_events) -> None:
         """Point the container at the currently selected log"""
         if self.source == MANAGER:
             self.stream_toggle.disabled = True
+            self.instance_selector.visible = False
             shown = MANAGER
             pane = self.manager_pane
         else:
             self.stream_toggle.disabled = False
-            shown = f"{self.source} {self.stream_toggle.value}"
-            key = f"{self.source} - {self.stream_toggle.value}"
+            instance = self.instance_selector.value or self.source
+            shown = f"{instance} {self.stream_toggle.value}"
+            key = f"{instance} - {self.stream_toggle.value}"
             pane = self.component_panes.get(
                 key, pn.pane.Markdown(f"No output for `{shown}` yet.")
             )
@@ -79,15 +112,22 @@ class LogFilesViewer(pn.viewable.Viewer):
     def show_source(self, source: str) -> None:
         """Switch to and show the logs of the given source.
 
-        Called when a row is clicked in the status table or in the
-        log-messages table; ``muscle_manager`` shows the manager log.
-        Picks the stream automatically: stderr when it has messages,
-        stdout otherwise.
+        Called when a component is clicked in the graph or a row in the
+        log-messages table; ``muscle_manager`` shows the manager log. For a
+        component with multiple instances (multiplicity, e.g. ``nice_inv[4]``)
+        an instance selector is shown. Picks the stream automatically: stderr
+        when the chosen instance has messages there, stdout otherwise.
         """
         self.source = source
         if source != MANAGER:
+            instances = self._instances_for(source)
+            self.instance_selector.options = instances
+            if self.instance_selector.value not in instances:
+                self.instance_selector.value = instances[0]
+            self.instance_selector.visible = len(instances) > 1
+            instance = self.instance_selector.value
             self.stream_toggle.value = (
-                "stderr" if f"{source} - stderr" in self._has_output else "stdout"
+                "stderr" if f"{instance} - stderr" in self._has_output else "stdout"
             )
         self._show_current()
 

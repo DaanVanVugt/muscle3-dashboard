@@ -21,6 +21,15 @@ _LEVEL_RE = re.compile(
 _LEVEL_ALIASES = {"WARN": "WARNING", "FATAL": "CRITICAL"}
 
 
+def _base_name(source: str) -> str:
+    """Strip a multiplicity suffix so instances group by component.
+
+    ``nice_inv[4]`` -> ``nice_inv``; ``muscle_manager`` and plain names are
+    returned unchanged.
+    """
+    return re.sub(r"\[.*\]$", "", source)
+
+
 def _detect_level(line: str) -> str | None:
     """Return the log level of a component log line, or None if not found."""
     match = _LEVEL_RE.match(line)
@@ -105,12 +114,18 @@ class LogMessagesTableViewer(pn.viewable.Viewer):
         for component, counts in self._component_levels.items():
             if any(counts.values()):
                 by_source[component] = counts
-        if not by_source:
-            by_source = {"muscle_manager": {}}
+        # Group multiplicity instances (nice_inv[0..4]) into one component row.
+        grouped: dict[str, dict[str, int]] = {}
+        for source, counts in by_source.items():
+            agg = grouped.setdefault(_base_name(source), dict.fromkeys(_LEVELS, 0))
+            for level in _LEVELS:
+                agg[level] += counts.get(level, 0)
+        if not grouped:
+            grouped = {"muscle_manager": {}}
         rows = {
             source: [_count_html(level, counts.get(level, 0)) for level in _LEVELS]
             for source, counts in sorted(
-                by_source.items(), key=lambda kv: (kv[0] != "muscle_manager", kv[0])
+                grouped.items(), key=lambda kv: (kv[0] != "muscle_manager", kv[0])
             )
         }
         df = pd.DataFrame.from_dict(rows, orient="index", columns=_LEVELS)
