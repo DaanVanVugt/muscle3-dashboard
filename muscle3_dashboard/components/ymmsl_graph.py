@@ -122,8 +122,10 @@ class YmmslGraphViewer(pn.viewable.Viewer):
 
         self.graph = _ClickableSVG()
         self.graph.param.watch(self._on_click, "component")
-        self.message = pn.pane.Markdown(visible=False)
+        self.note = pn.pane.Markdown(visible=False)  # "approximate" warning
+        self.message = pn.pane.Markdown(visible=False)  # error / no-graph text
         self.card = pn.Card(
+            self.note,
             self.graph,
             self.message,
             title="Simulation graph",
@@ -147,18 +149,36 @@ class YmmslGraphViewer(pn.viewable.Viewer):
             self._show_message(f"No `configuration.ymmsl` in `{config.parent}`.")
             return
 
+        ymmsl2svg_settings.debug = False
+        approximate = False
         try:
-            ymmsl2svg_settings.debug = False
+            ymmsl2svg_settings.check_timelines = True
             svg = ymmsl2svg(config)
-        except Exception as e:
-            logger.warning("Could not visualize %s: %s", config, e)
-            self._show_message(f"Could not visualize `{config.name}`: {e}")
-            return
+        except Exception as strict_error:
+            # Best-effort: draw without timeline verification for models the
+            # strict checker rejects (e.g. time-scale bridges / accumulators).
+            try:
+                ymmsl2svg_settings.check_timelines = False
+                svg = ymmsl2svg(config)
+                approximate = True
+            except Exception:
+                logger.warning("Could not visualize %s: %s", config, strict_error)
+                self._show_message(
+                    f"Could not visualize `{config.name}`: {strict_error}"
+                )
+                return
+            finally:
+                ymmsl2svg_settings.check_timelines = True
 
         self._base_svg = str(svg)
         self._rendered = True
         self.graph.visible = True
         self.message.visible = False
+        self.note.object = (
+            "⚠ Timelines could not be verified for this model; "
+            "the layout is approximate."
+        )
+        self.note.visible = approximate
         self._apply_styling()
 
     def _bucket(self, component) -> str:
@@ -221,6 +241,7 @@ class YmmslGraphViewer(pn.viewable.Viewer):
 
     def _show_message(self, text: str) -> None:
         self.graph.visible = False
+        self.note.visible = False
         self.message.object = text
         self.message.visible = True
 
