@@ -23,6 +23,7 @@ import os
 import re
 import socket
 import subprocess
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -108,11 +109,23 @@ class Run:
         }
 
 
+#: Cache of parsed status keyed by manager-log path, valid while its
+#: (mtime, size) is unchanged -- so a finished run isn't re-read every scan.
+_status_cache: dict[str, tuple[float, int, tuple[RunStatus, datetime | None]]] = {}
+
+
 def _log_status(run_dir: Path) -> tuple[RunStatus, datetime | None]:
     """Determine run status from the tail of the manager log."""
     logfile = run_dir / MANAGER_LOG
     try:
         stat = logfile.stat()
+    except OSError:
+        return RunStatus.UNKNOWN, None
+    key = str(logfile)
+    cached = _status_cache.get(key)
+    if cached is not None and cached[0] == stat.st_mtime and cached[1] == stat.st_size:
+        return cached[2]
+    try:
         with logfile.open("rb") as f:
             f.seek(max(0, stat.st_size - _TAIL_BYTES))
             tail = f.read().decode("utf-8", errors="replace")
@@ -120,32 +133,86 @@ def _log_status(run_dir: Path) -> tuple[RunStatus, datetime | None]:
         return RunStatus.UNKNOWN, None
     mtime = datetime.fromtimestamp(stat.st_mtime)
     if _SUCCESS_RE.search(tail):
-        return RunStatus.FINISHED, mtime
-    if _FAILURE_RE.search(tail):
-        return RunStatus.FAILED, mtime
-    return RunStatus.UNKNOWN, mtime
+        result = (RunStatus.FINISHED, mtime)
+    elif _FAILURE_RE.search(tail):
+        result = (RunStatus.FAILED, mtime)
+    else:
+        result = (RunStatus.UNKNOWN, mtime)
+    _status_cache[key] = (stat.st_mtime, stat.st_size, result)
+    return result
+
+
+#: Cache for incremental directory scans: dirpath -> (mtime, child dir names to
+#: descend, is_run_dir). A directory's mtime changes when its direct entries
+#: change, so for an unchanged directory we reuse its listing and skip the
+#: scandir. We still stat every directory, because a new run dir deeper down
+#: bumps only its immediate parent's mtime, not its ancestors'.
+_scan_cache: dict[str, tuple[float, list[str], bool]] = {}
+
+#: Only trust a cached listing once the directory's mtime is this many seconds
+#: in the past. A change in the same coarse mtime tick as our scan would not
+#: advance the mtime, so without this margin a new run added right around a scan
+#: could be missed; re-listing recently-touched directories avoids that.
+_MTIME_SETTLE = 2.0
 
 
 def _scan_tree(root: Path, max_depth: int = MAX_SCAN_DEPTH) -> list[Path]:
-    """Find run directories under root, bounded in depth, with pruning."""
-    run_dirs = []
+    """Find run directories under root, bounded in depth, with pruning.
+
+    Incremental: directories whose mtime is unchanged since the last scan reuse
+    their cached listing instead of being re-read.
+    """
     root = root.expanduser()
     if not root.is_dir():
-        return run_dirs
-    base_depth = len(root.parts)
-    for dirpath, dirnames, filenames in os.walk(root, topdown=True):
-        depth = len(Path(dirpath).parts) - base_depth
-        if depth >= max_depth:
-            dirnames[:] = []
+        return []
+    run_dirs: list[Path] = []
+    seen: set[str] = set()
+    now = time.time()
+    stack: list[tuple[Path, int]] = [(root, 0)]
+    while stack:
+        path, depth = stack.pop()
+        key = str(path)
+        seen.add(key)
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
             continue
-        dirnames[:] = [
-            d for d in dirnames if d not in PRUNE_DIRS and not d.startswith(".")
-        ]
-        if MANAGER_LOG in filenames:
-            run_dirs.append(Path(dirpath))
-            # run dirs do not contain nested run dirs, except snapshots of
-            # sub-runs; don't descend
-            dirnames[:] = []
+        cached = _scan_cache.get(key)
+        if cached is not None and cached[0] == mtime and mtime < now - _MTIME_SETTLE:
+            _, children, is_run = cached
+        else:
+            try:
+                entries = list(os.scandir(path))
+            except OSError:
+                continue
+            is_run = any(
+                e.name == MANAGER_LOG and e.is_file() for e in entries
+            )
+            # Run dirs hold no nested run dirs worth showing; don't descend.
+            if is_run or depth + 1 >= max_depth:
+                children = []
+            else:
+                children = [
+                    e.name
+                    for e in entries
+                    if e.name not in PRUNE_DIRS
+                    and not e.name.startswith(".")
+                    and e.is_dir(follow_symlinks=False)
+                ]
+            _scan_cache[key] = (mtime, children, is_run)
+        if is_run:
+            run_dirs.append(path)
+            continue
+        for name in children:
+            stack.append((path / name, depth + 1))
+    # Drop cache entries for directories under this root that have disappeared.
+    prefix = str(root)
+    for stale in [
+        k
+        for k in _scan_cache
+        if k not in seen and (k == prefix or k.startswith(prefix + "/"))
+    ]:
+        del _scan_cache[stale]
     return run_dirs
 
 

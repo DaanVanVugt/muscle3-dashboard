@@ -42,7 +42,9 @@ from muscle3_dashboard.m3dash.discovery import (
 logger = logging.getLogger(__name__)
 
 ROOTS_FILE = Path("~/.config/m3dash/roots").expanduser()
-RESCAN_INTERVAL_SECONDS = 60
+# Incremental discovery (cached dir listings + log status) makes rescans cheap
+# after the first, so they can run fairly often.
+RESCAN_INTERVAL_SECONDS = 20
 VIEW_REFRESH_MILLISECONDS = 5000
 #: Local port the browser reaches m3dash on; used to build proxy links.
 LOCAL_PORT = 4333
