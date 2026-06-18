@@ -8,6 +8,7 @@ from pathlib import Path
 
 import panel as pn
 
+from muscle3_dashboard.components.component_summary import ComponentSummaryViewer
 from muscle3_dashboard.components.log_files import LogFilesViewer
 from muscle3_dashboard.components.profiling_information import (
     ProfilingInformationViewer,
@@ -76,6 +77,7 @@ class Dashboard(pn.viewable.Viewer):
             on_select=self._show_logs_for,
         )
         self.web_uis_viewer = WebUIsViewer(web_urls)
+        self.component_summary_viewer = ComponentSummaryViewer(self.data_manager)
         self.log_files_viewer = LogFilesViewer(self.data_manager)
         self.profiling_information_viewer = ProfilingInformationViewer(
             self.data_manager
@@ -94,12 +96,13 @@ class Dashboard(pn.viewable.Viewer):
         self.data_manager.param.watch(self._auto_open_crash, "data_updated")
 
         # Single page, top to bottom: the simulation graph (components coloured
-        # by status, click one to show its logs), the Web UIs card (when actors
-        # expose served UIs), then the log files.
+        # by status, click one for its summary + logs), the Web UIs card (when
+        # actors expose served UIs), the clicked component's summary, then logs.
         self.template.main.append(
             pn.Column(
                 self.ymmsl_graph_viewer,
                 self.web_uis_viewer,
+                self.component_summary_viewer,
                 self.log_files_viewer,
                 sizing_mode="stretch_width",
             )
@@ -174,7 +177,8 @@ class Dashboard(pn.viewable.Viewer):
         self._show_logs_for(responsible)
 
     def _show_logs_for(self, source: str) -> None:
-        """Show the given source's log in the log files card."""
+        """Show the clicked component's summary and its log."""
+        self.component_summary_viewer.show(source)
         self.log_files_viewer.show_source(source)
 
     def session_created(self) -> None:
