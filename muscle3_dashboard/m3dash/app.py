@@ -198,9 +198,15 @@ def _runs_table_html(runs: list[Run]) -> str:
     common = _common_dir([str(run.run_dir) for run in runs])
     epoch = datetime.fromtimestamp(0)
     rows = []
+    previous = ""
     for run in sorted(runs, key=lambda r: r.last_updated or epoch, reverse=True):
         path = str(run.run_dir)
         rel = path[len(common) :].lstrip("/") if common else path
+        # Fade the path components shared with the row above so only the
+        # distinguishing tail stands out (kept in the link for alignment).
+        cut = _common_prefix_len(previous, rel)
+        previous = rel
+        shared, unique = html.escape(rel[:cut]), html.escape(rel[cut:])
         query = urllib.parse.urlencode({"dir": path})
         dot = _DOT_COLORS[run.status]
         rows.append(
@@ -208,7 +214,8 @@ def _runs_table_html(runs: list[Run]) -> str:
             '<td style="font-family:monospace">'
             f'<span style="color:{dot}" title="{html.escape(run.status.value)}">'
             "●</span> "
-            f'<a href="run?{query}" target="_blank">{html.escape(rel)}</a>'
+            f'<a href="run?{query}" target="_blank">'
+            f'<span style="color:#ccc">{shared}</span>{unique}</a>'
             "</td>"
             f'<td style="white-space:nowrap">{_updated_html(run.last_updated)}</td>'
             f"<td>{html.escape(_job_ref(run))}</td>"
