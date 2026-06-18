@@ -1,3 +1,4 @@
+import base64
 import logging
 import re
 from collections.abc import Callable
@@ -21,24 +22,34 @@ except ImportError:  # optional "graph" extra not installed
 class _ClickableSVG(pn.reactive.ReactiveHTML):
     """Render an SVG string and report the clicked component.
 
-    ymmsl2svg gives each component box ``id="component-<name>"``. A click
-    anywhere on a box sets ``component`` to ``<name>`` (label text has
-    ``pointer-events: none`` so clicks fall through to the box). ``component``
-    is reset to "" after each click so the same box can be clicked again.
+    The SVG is passed **base64-encoded** (``svg_b64``): Panel runs every string
+    param through an HTML sanitizer that strips ``<svg>``/``<path>``/``<style>``
+    outright, so a raw SVG param renders as an empty box. base64 has no tags to
+    strip, so it passes through; the script decodes it (UTF-8 safe, for the ``→``
+    in conduit labels) and injects it as innerHTML.
+
+    ymmsl2svg gives each component box ``id="component-<name>"``. A click on a
+    box sets ``component`` to ``<name>`` (label text has ``pointer-events:none``
+    so clicks fall through to the box); ``component`` is reset to "" after each
+    click so the same box can be clicked again.
     """
 
-    svg = param.String(default="")
+    svg_b64 = param.String(default="")
     component = param.String(default="")
 
     _template = (
         '<div id="graph" onclick="${script(\'click\')}" '
         'style="width:100%;overflow:auto"></div>'
     )
+    _draw = (
+        "graph.innerHTML = data.svg_b64 ? new TextDecoder().decode("
+        "Uint8Array.from(atob(data.svg_b64), c => c.charCodeAt(0))) : ''"
+    )
     _scripts = {
-        "render": "graph.innerHTML = data.svg",
-        "svg": "graph.innerHTML = data.svg",
+        "render": _draw,
+        "svg_b64": _draw,
         "click": (
-            "const el = event.target.closest('[id^=\"component-\"]');"
+            "const el = state.event.target.closest('[id^=\"component-\"]');"
             "if (el) { data.component = el.id.slice('component-'.length); }"
         ),
     }
@@ -132,9 +143,10 @@ class YmmslGraphViewer(pn.viewable.Viewer):
         css = "text{pointer-events:none}[id^='component-']{cursor:pointer}"
         for name in sorted(crashed):
             css += f'[id="component-{name}"]{{stroke:#c62828;stroke-width:4}}'
-        self.graph.svg = self._base_svg.replace(
+        styled = self._base_svg.replace(
             "</svg>", f"<style>{css}</style></svg>", 1
         )
+        self.graph.svg_b64 = base64.b64encode(styled.encode()).decode()
         self._highlighted = crashed
 
     def _on_click(self, event) -> None:
