@@ -10,6 +10,10 @@ from muscle3_dashboard.pathlink import path_html
 
 MANAGER = "muscle_manager"
 
+#: Above this many instances the side-by-side radio buttons get unwieldy, so a
+#: dropdown is used instead.
+_MAX_RADIO_INSTANCES = 20
+
 
 def _base_name(source: str) -> str:
     """Strip a multiplicity suffix: ``nice_inv[4]`` -> ``nice_inv``."""
@@ -20,6 +24,12 @@ def _instance_sort_key(name: str):
     """Sort instances by their numeric index (``nice_inv[2]`` before ``[10]``)."""
     match = re.search(r"\[(\d+)\]", name)
     return (int(match.group(1)),) if match else (-1,)
+
+
+def _instance_label(name: str) -> str:
+    """Short label for an instance button: the index inside the brackets."""
+    match = re.search(r"\[(.+)\]$", name)
+    return match.group(1) if match else name
 
 
 class LogFilesViewer(pn.viewable.Viewer):
@@ -49,11 +59,11 @@ class LogFilesViewer(pn.viewable.Viewer):
         self.source = MANAGER
 
         # Picks which instance of a multi-instance component (e.g. nice_inv[4])
-        # to show; hidden for the manager log and single-instance components.
-        self.instance_selector = pn.widgets.Select(
-            options=[], align="center", width=160, visible=False
-        )
-        self.instance_selector.param.watch(self._show_current, "value")
+        # to show. Holds a RadioButtonGroup of instance numbers, or a dropdown
+        # when there are too many; hidden for the manager log and single
+        # instances. _instance is the chosen instance name.
+        self._instance: str | None = None
+        self.instance_slot = pn.Row(align="center", margin=0, visible=False)
         self.stream_toggle = pn.widgets.RadioButtonGroup(
             options=["stdout", "stderr"],
             value="stdout",
@@ -72,7 +82,7 @@ class LogFilesViewer(pn.viewable.Viewer):
             header=pn.Row(
                 self.title_pane,
                 pn.HSpacer(),
-                self.instance_selector,
+                self.instance_slot,
                 self.stream_toggle,
                 sizing_mode="stretch_width",
             ),
@@ -91,16 +101,44 @@ class LogFilesViewer(pn.viewable.Viewer):
         )
         return matches or [source]
 
+    def _build_instance_selector(self, instances: list[str]) -> None:
+        """(Re)build the instance selector for ``instances`` and pick one.
+
+        Side-by-side number buttons for a handful of instances, a dropdown when
+        there are many. Sets ``self._instance`` to the chosen instance name.
+        """
+        self._instance = (
+            self._instance if self._instance in instances else instances[0]
+        )
+        if len(instances) <= _MAX_RADIO_INSTANCES:
+            widget = pn.widgets.RadioButtonGroup(
+                # label = instance number, value = full instance name
+                options={_instance_label(name): name for name in instances},
+                value=self._instance,
+                align="center",
+            )
+        else:
+            widget = pn.widgets.Select(
+                options=instances, value=self._instance, align="center", width=160
+            )
+        widget.param.watch(self._on_instance_change, "value")
+        self.instance_slot.objects = [widget]
+        self.instance_slot.visible = len(instances) > 1
+
+    def _on_instance_change(self, event) -> None:
+        self._instance = event.new
+        self._show_current()
+
     def _show_current(self, *_events) -> None:
         """Point the container at the currently selected log"""
         if self.source == MANAGER:
             self.stream_toggle.disabled = True
-            self.instance_selector.visible = False
+            self.instance_slot.visible = False
             shown = MANAGER
             pane = self.manager_pane
         else:
             self.stream_toggle.disabled = False
-            instance = self.instance_selector.value or self.source
+            instance = self._instance or self.source
             shown = f"{instance} {self.stream_toggle.value}"
             key = f"{instance} - {self.stream_toggle.value}"
             pane = self.component_panes.get(
@@ -120,14 +158,11 @@ class LogFilesViewer(pn.viewable.Viewer):
         """
         self.source = source
         if source != MANAGER:
-            instances = self._instances_for(source)
-            self.instance_selector.options = instances
-            if self.instance_selector.value not in instances:
-                self.instance_selector.value = instances[0]
-            self.instance_selector.visible = len(instances) > 1
-            instance = self.instance_selector.value
+            self._build_instance_selector(self._instances_for(source))
             self.stream_toggle.value = (
-                "stderr" if f"{instance} - stderr" in self._has_output else "stdout"
+                "stderr"
+                if f"{self._instance} - stderr" in self._has_output
+                else "stdout"
             )
         self._show_current()
 
