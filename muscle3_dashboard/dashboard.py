@@ -1,5 +1,6 @@
 import contextlib
 import html
+import re
 from datetime import datetime
 from functools import lru_cache
 from importlib.metadata import PackageNotFoundError, version
@@ -94,6 +95,10 @@ class Dashboard(pn.viewable.Viewer):
         )
         self.template.header.append(self.header_pane)
         self.data_manager.param.watch(self._update_header, "data_updated")
+        # Auto-open the responsible component's log on the first detected crash.
+        # Registered after the viewers so their log state is populated first.
+        self._auto_opened = False
+        self.data_manager.param.watch(self._auto_open_crash, "data_updated")
 
         # Single page, top to bottom: the simulation graph (crashed components
         # outlined, click a component to show its logs), the Web UIs card (when
@@ -141,6 +146,37 @@ class Dashboard(pn.viewable.Viewer):
 
     def _update_header(self, event) -> None:
         self.header_pane.object = self._header_html()
+
+    def _responsible_component(self) -> str | None:
+        """Base name of the likely-responsible crashed component, if any.
+
+        The culprit is one that exited with a real non-zero code, not a
+        collateral SIGKILL (-9) / generic crash after another failed (mirrors
+        the crash-analysis split). Returns the first such component's base name.
+        """
+        components = self.data_manager.manager_log_analyzer.components
+        for name, component in components.items():
+            message = component.exit_code_message
+            if (
+                message
+                and message != "0"
+                and "-9" not in message
+                and "crashed" not in message
+            ):
+                return re.sub(r"\[.*\]$", "", name)
+        return None
+
+    def _auto_open_crash(self, event) -> None:
+        """On the first detected crash, show the responsible component's log."""
+        if self._auto_opened:
+            return
+        responsible = self._responsible_component()
+        if responsible is None:
+            return
+        self._auto_opened = True
+        # show_source picks stderr when it has output, which is where the
+        # crashing component's traceback lives.
+        self._show_logs_for(responsible)
 
     def _show_logs_for(self, source: str) -> None:
         """Show the source's log and mirror the selection in the messages table.
