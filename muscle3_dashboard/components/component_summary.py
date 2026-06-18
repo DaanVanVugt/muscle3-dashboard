@@ -85,8 +85,13 @@ class ComponentSummaryViewer(pn.viewable.Viewer):
             value="", language="text", readonly=True, visible=False,
             sizing_mode="stretch_width", height=360,
         )
+        self.editor_close = pn.widgets.Button(
+            name="✕ close", button_type="light", visible=False,
+            width=90, margin=(4, 4), align="end",
+        )
+        self.editor_close.on_click(self._close_editor)
         self.card = pn.Card(
-            pn.Column(self.block, self.details, self.editor),
+            pn.Column(self.block, self.details, self.editor_close, self.editor),
             title="Component",
             margin=CARD_MARGIN,
             sizing_mode="stretch_width",
@@ -113,6 +118,7 @@ class ComponentSummaryViewer(pn.viewable.Viewer):
                 str(c.name): c for c in cfg.root_model().components.values()
             }.get(component_name)
         self.editor.visible = False
+        self.editor_close.visible = False
         if comp is None:
             self.block.visible = False
             self.details.html_b64 = _b64(
@@ -148,6 +154,11 @@ class ComponentSummaryViewer(pn.viewable.Viewer):
         self.editor.language = _LANGUAGES.get(Path(path).suffix.lower(), "text")
         self.editor.value = text
         self.editor.visible = True
+        self.editor_close.visible = True
+
+    def _close_editor(self, _event=None) -> None:
+        self.editor.visible = False
+        self.editor_close.visible = False
 
     def __panel__(self):
         return self.card
