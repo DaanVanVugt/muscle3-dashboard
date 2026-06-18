@@ -24,9 +24,11 @@ import html
 import inspect
 import logging
 import socket
+import statistics
 import threading
 import time
 import urllib.parse
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 
@@ -81,9 +83,20 @@ class RunIndex:
         self.last_scan: datetime | None = None
         self.scan_seconds: float | None = None
         self.scanning = False
+        self._durations: deque[float] = deque(maxlen=20)
         self._lock = threading.Lock()
         self._wakeup = threading.Event()
         self._thread: threading.Thread | None = None
+
+    def scan_lead(self) -> float:
+        """Upper estimate of a scan's duration (mean + 2 stddev), in seconds,
+        used to start a rescan so it finishes just before the next refresh."""
+        d = list(self._durations)
+        if not d:
+            return 1.0
+        if len(d) < 2:
+            return d[0]
+        return statistics.fmean(d) + 2 * statistics.pstdev(d)
 
     def start(self) -> None:
         self._thread = threading.Thread(
@@ -109,6 +122,7 @@ class RunIndex:
             finally:
                 self.scanning = False
                 self.scan_seconds = time.monotonic() - started
+                self._durations.append(self.scan_seconds)
                 self.last_scan = datetime.now()
             self._wakeup.wait(timeout=RESCAN_INTERVAL_SECONDS)
             self._wakeup.clear()
@@ -236,42 +250,39 @@ def _runs_table_html(runs: list[Run]) -> str:
     )
 
 
-# Style a Button to read as an inline text link.
-_LINK_CSS = """
-.bk-btn, .bk-btn-default {
-  background: none; border: none; padding: 0; margin: 0;
-  color: #1976d2; text-decoration: underline; cursor: pointer; font: inherit;
-}
-"""
-
-
 def _scan_summary_html(index) -> str:
     if index.last_scan is not None:
         when = f"last scan {_age(index.last_scan)} ago ({index.scan_seconds:.2f}s)"
     else:
         when = "first scan pending"
     roots = ", ".join(f"<code>{html.escape(str(r))}</code>" for r in index.roots)
+    tip = html.escape(f"edit {ROOTS_FILE} (one path per line) and it applies next scan")
     return (
-        f'<span style="opacity:0.7">{len(index.runs)} runs · {when} · '
-        f"roots (edit <code>{html.escape(str(ROOTS_FILE))}</code>): {roots}</span>"
+        f'<span style="opacity:0.7" title="{tip}">{when} · roots: {roots}</span>'
     )
 
 
 def index_app():
-    """Landing page: run list, with the scan summary + roots at the bottom."""
+    """Landing page: run list, with the scan summary + roots at the bottom.
+
+    A rescan is scheduled to start ``mean + 2*stddev`` of the recent scan
+    durations before the next refresh, so it finishes just in time for the
+    refresh to display fresh results.
+    """
     assert _index is not None
     table = pn.pane.HTML(_runs_table_html(_index.runs), sizing_mode="stretch_width")
     summary = pn.pane.HTML(sizing_mode="stretch_width")
-    rescan = pn.widgets.Button(
-        name="rescan now", stylesheets=[_LINK_CSS], margin=(0, 8)
-    )
 
     def refresh(*_events) -> None:
-        _index.request_rescan()  # scan again after every refresh
         table.object = _runs_table_html(_index.runs)
         summary.object = _scan_summary_html(_index)
+        doc = pn.state.curdoc
+        if doc is not None:
+            lead_ms = min(VIEW_REFRESH_MILLISECONDS, int(_index.scan_lead() * 1000))
+            doc.add_timeout_callback(
+                _index.request_rescan, VIEW_REFRESH_MILLISECONDS - lead_ms
+            )
 
-    rescan.on_click(lambda _event: _index.request_rescan())
     # Defer the periodic callback to session load: adding it during the
     # app-factory call makes Bokeh replay a SessionCallbackAdded event on
     # the first document unhold, raising "a callback ... has already been
@@ -288,7 +299,7 @@ def index_app():
 
     return pn.template.VanillaTemplate(
         title="m3dash | MUSCLE3 runs",
-        main=[pn.Column(table, pn.Row(summary, rescan))],
+        main=[pn.Column(table, summary)],
     )
 
 
