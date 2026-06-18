@@ -177,15 +177,19 @@ class ManagerLogAnalyzer(BaseLogAnalyzer):
     def to_dataframe(self) -> pd.DataFrame:
         """Create dataframe for status table viewer, sorted by component
         name to match the log messages table"""
+        rows = [
+            {
+                "name": component.name,
+                "status": component.status,
+                "exit_code": component.exit_code_message,
+            }
+            for component in self.components.values()
+        ]
+        # Pass explicit columns so set_index("name") still works when no
+        # components have been parsed yet (e.g. an empty or not-yet-populated
+        # manager log), instead of raising "None of ['name'] are in the columns".
         return (
-            pd.DataFrame(
-                {
-                    "name": component.name,
-                    "status": component.status,
-                    "exit_code": component.exit_code_message,
-                }
-                for component in self.components.values()
-            )
+            pd.DataFrame(rows, columns=["name", "status", "exit_code"])
             .set_index("name")
             .sort_index()
         )
