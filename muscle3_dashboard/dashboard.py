@@ -13,7 +13,6 @@ from muscle3_dashboard.components.log_files import LogFilesViewer
 from muscle3_dashboard.components.profiling_information import (
     ProfilingInformationViewer,
 )
-from muscle3_dashboard.components.web_uis import WebUIsViewer
 from muscle3_dashboard.components.ymmsl_graph import YmmslGraphViewer
 from muscle3_dashboard.data_manager import DataManager
 from muscle3_dashboard.pathlink import path_html
@@ -52,17 +51,9 @@ def _dashboard_version() -> str:
 
 
 class Dashboard(pn.viewable.Viewer):
-    """Main dashboard for muscle3_dashboard app.
+    """Main dashboard for muscle3_dashboard app."""
 
-    ``web_urls`` (component name -> served-UI link) is shown in the Web UIs
-    card when non-empty.
-    """
-
-    def __init__(
-        self,
-        run_folder: Path,
-        web_urls: dict[str, str] | None = None,
-    ) -> None:
+    def __init__(self, run_folder: Path) -> None:
         self.run_folder = run_folder
 
         self.template = pn.template.MaterialTemplate(
@@ -76,7 +67,6 @@ class Dashboard(pn.viewable.Viewer):
             self.data_manager,
             on_select=self._show_logs_for,
         )
-        self.web_uis_viewer = WebUIsViewer(web_urls)
         self.component_summary_viewer = ComponentSummaryViewer(self.data_manager)
         self.log_files_viewer = LogFilesViewer(self.data_manager)
         self.profiling_information_viewer = ProfilingInformationViewer(
@@ -96,12 +86,11 @@ class Dashboard(pn.viewable.Viewer):
         self.data_manager.param.watch(self._auto_open_crash, "data_updated")
 
         # Single page, top to bottom: the simulation graph (components coloured
-        # by status, click one for its summary + logs), the Web UIs card (when
-        # actors expose served UIs), the clicked component's summary, then logs.
+        # by status, click one for its summary + logs), the clicked component's
+        # summary, then the log files.
         self.template.main.append(
             pn.Column(
                 self.ymmsl_graph_viewer,
-                self.web_uis_viewer,
                 self.component_summary_viewer,
                 self.log_files_viewer,
                 sizing_mode="stretch_width",

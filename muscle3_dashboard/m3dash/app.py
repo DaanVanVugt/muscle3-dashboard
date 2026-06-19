@@ -14,16 +14,10 @@ and is reached through an SSH forward, e.g. in ``~/.ssh/config``::
     LocalForward 127.0.0.1:4333 /home/ITER/%r/.m3dash.sock
 
 (``%r`` expands to the remote username, so one line serves every user.)
-
-It additionally reverse-proxies each running run's harvested actor UIs
-under per-target subdomains (``<token>.localhost``); see
-:mod:`muscle3_dashboard.m3dash.proxy`.
 """
 
 import html
-import inspect
 import logging
-import socket
 import statistics
 import threading
 import time
@@ -48,15 +42,6 @@ ROOTS_FILE = Path("~/.config/m3dash/roots").expanduser()
 # rescans cheap after the first, so they can run often.
 RESCAN_INTERVAL_SECONDS = 5
 VIEW_REFRESH_MILLISECONDS = 5000
-#: Local port the browser reaches m3dash on; used to build proxy links.
-LOCAL_PORT = 4333
-
-_STATUS_COLORS = {
-    RunStatus.RUNNING: "#1976d2",
-    RunStatus.FINISHED: "#388e3c",
-    RunStatus.FAILED: "#d32f2f",
-    RunStatus.UNKNOWN: "#757575",
-}
 
 
 def load_roots() -> list[Path]:
@@ -330,77 +315,7 @@ def run_app():
     # Local import: pulls in the full dashboard and its dependencies
     from muscle3_dashboard.dashboard import Dashboard
 
-    # web_urls is added by the run-page restyle; stay compatible with a
-    # Dashboard without it (the page then just lacks the web-UI column).
-    kwargs = {}
-    if "web_urls" in inspect.signature(Dashboard).parameters:
-        kwargs["web_urls"] = _component_web_urls(run_dir)
-    dash = Dashboard(run_dir.resolve(), **kwargs)
-    _add_logdy_tab(dash, run_dir.resolve())
-    return dash
-
-
-def _add_logdy_tab(dash, run_dir: Path) -> None:
-    """If logdy is available, embed its web log explorer in the log files
-    card.
-
-    Reached through the same per-target subdomain proxy as actor UIs, so
-    the remote browser can load the iframe over the one m3dash endpoint.
-    Falls back silently to the built-in terminals when logdy is absent.
-    """
-    from muscle3_dashboard.m3dash import logviewer
-    from muscle3_dashboard.m3dash.proxy import subdomain_host
-
-    port = logviewer.launch(run_dir)
-    if not port:
-        return
-    url = "http://" + subdomain_host("127.0.0.1", port, f"localhost:{LOCAL_PORT}")
-    iframe = pn.pane.HTML(
-        f'<iframe src="{url}" style="width:100%;height:70vh;border:0"></iframe>',
-        sizing_mode="stretch_width",
-    )
-    try:
-        viewer = dash.log_files_viewer
-        if hasattr(viewer, "tabs"):  # pre-restyle dashboard layout
-            viewer.tabs.insert(0, ("Explore (logdy)", iframe))
-            viewer.tabs.active = 0
-        else:  # single-view layout: collapsed card above the log view
-            viewer.card.insert(
-                0,
-                pn.Card(
-                    iframe,
-                    title="Explore (logdy)",
-                    sizing_mode="stretch_width",
-                    collapsed=True,
-                ),
-            )
-    except Exception:  # noqa: BLE001 - never break the page over the explorer
-        logger.exception("Could not add the logdy explorer")
-
-
-def _component_web_urls(run_dir: Path) -> dict[str, str]:
-    """Map each component to an HTML link to its harvested UI (proxied).
-
-    Used as the status table's "web UI" column.
-    """
-    from muscle3_dashboard.m3dash.harvest import harvest_run
-    from muscle3_dashboard.m3dash.proxy import subdomain_host
-
-    by_instance: dict[str, list[str]] = {}
-    for u in harvest_run(run_dir, fallback_node=socket.gethostname()):
-        if u.resolved and u.node and u.port:
-            sub = subdomain_host(u.node, u.port, f"localhost:{LOCAL_PORT}")
-            link = f"http://{sub}{u.path or '/'}"
-            html_link = (
-                f'<a href="{html.escape(link)}" target="_blank">open &#x2197;</a>'
-            )
-        else:
-            html_link = (
-                f'<span title="node unresolved: {html.escape(u.original)}">'
-                f"(unresolved)</span>"
-            )
-        by_instance.setdefault(u.instance, []).append(html_link)
-    return {inst: " , ".join(links) for inst, links in by_instance.items()}
+    return Dashboard(run_dir.resolve())
 
 
 def _claim_socket(socket_path: Path) -> None:
@@ -417,7 +332,6 @@ def serve(
     websocket_origins: list[str],
     tcp_port: int | None = None,
     address: str = "127.0.0.1",
-    local_port: int = 4333,
     open_browser: bool = False,
 ) -> None:
     """Run the m3dash server (blocking).
@@ -432,15 +346,12 @@ def serve(
         tcp_port: Optional TCP port to also serve on (mainly for
             debugging; its loopback origins are added automatically).
         address: Address to bind the TCP port to.
-        local_port: Port the browser reaches m3dash on; used to build
-            ``<token>.localhost:<local_port>`` proxy links.
         open_browser: Open a browser at the TCP URL once serving (for a
             desktop session running on the node itself). Needs tcp_port.
     """
-    global _index, LOCAL_PORT
+    global _index
     _index = RunIndex()
     _index.start()
-    LOCAL_PORT = local_port
 
     origins = list(websocket_origins)
     if tcp_port:
@@ -454,12 +365,6 @@ def serve(
         start=False,
         threaded=False,
     )
-    # Mount the per-target subdomain reverse-proxy on the same tornado
-    # app; host-routing means these only catch <token>.localhost traffic
-    # and leave the dashboard's own routes untouched.
-    from muscle3_dashboard.m3dash.proxy import PROXY_HOST_PATTERN, proxy_handlers
-
-    server._tornado.add_handlers(PROXY_HOST_PATTERN, proxy_handlers())
     if socket_path is not None:
         from tornado.netutil import bind_unix_socket
 
