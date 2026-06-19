@@ -24,9 +24,11 @@ import html
 import inspect
 import logging
 import socket
+import statistics
 import threading
 import time
 import urllib.parse
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 
@@ -42,7 +44,9 @@ from muscle3_dashboard.m3dash.discovery import (
 logger = logging.getLogger(__name__)
 
 ROOTS_FILE = Path("~/.config/m3dash/roots").expanduser()
-RESCAN_INTERVAL_SECONDS = 60
+# Incremental discovery (cached dir listings + log status, parallel stat) makes
+# rescans cheap after the first, so they can run often.
+RESCAN_INTERVAL_SECONDS = 5
 VIEW_REFRESH_MILLISECONDS = 5000
 #: Local port the browser reaches m3dash on; used to build proxy links.
 LOCAL_PORT = 4333
@@ -79,9 +83,20 @@ class RunIndex:
         self.last_scan: datetime | None = None
         self.scan_seconds: float | None = None
         self.scanning = False
+        self._durations: deque[float] = deque(maxlen=20)
         self._lock = threading.Lock()
         self._wakeup = threading.Event()
         self._thread: threading.Thread | None = None
+
+    def scan_lead(self) -> float:
+        """Upper estimate of a scan's duration (mean + 2 stddev), in seconds,
+        used to start a rescan so it finishes just before the next refresh."""
+        d = list(self._durations)
+        if not d:
+            return 1.0
+        if len(d) < 2:
+            return d[0]
+        return statistics.fmean(d) + 2 * statistics.pstdev(d)
 
     def start(self) -> None:
         self._thread = threading.Thread(
@@ -107,6 +122,7 @@ class RunIndex:
             finally:
                 self.scanning = False
                 self.scan_seconds = time.monotonic() - started
+                self._durations.append(self.scan_seconds)
                 self.last_scan = datetime.now()
             self._wakeup.wait(timeout=RESCAN_INTERVAL_SECONDS)
             self._wakeup.clear()
@@ -128,73 +144,145 @@ def _age(timestamp: datetime | None) -> str:
     return f"{int(seconds / 86400)}d"
 
 
-def _runs_table_html(runs: list[Run]) -> str:
-    """Render the run list as an HTML table with links to /run.
+# Status dot colours: blue = running, green = finished OK, red = failed,
+# grey = not started / unknown.
+_DOT_COLORS = {
+    RunStatus.RUNNING: "#1976d2",
+    RunStatus.FINISHED: "#2e7d32",
+    RunStatus.FAILED: "#d32f2f",
+    RunStatus.UNKNOWN: "#9e9e9e",
+}
 
-    Per-component web UIs are shown on the run page (in the component
-    status table), not here. The run-directory cell copies its full path
-    to the clipboard on click.
-    """
-    rows = []
-    for run in runs:
-        query = urllib.parse.urlencode({"dir": str(run.run_dir)})
-        color = _STATUS_COLORS[run.status]
-        if run.job_id:
-            ref = f"job {run.job_id}"
-        elif run.pid:
-            ref = f"pid {run.pid}"
-        else:
-            ref = ""
-        run_dir = html.escape(str(run.run_dir))
-        rows.append(
-            f"<tr>"
-            f'<td><a href="run?{query}" target="_blank">'
-            f"<b>{html.escape(run.name)}</b></a></td>"
-            f'<td><span style="color:{color}">{run.status.value}</span></td>'
-            f"<td>{_age(run.last_updated)}</td>"
-            f"<td>{html.escape(ref)}</td>"
-            f'<td class="m3dpath" title="click to copy" '
-            f'onclick="navigator.clipboard.writeText(this.dataset.path)" '
-            f'data-path="{run_dir}" '
-            f'style="color:#888;font-size:0.85em;cursor:pointer">'
-            f"{run_dir}</td>"
-            f"</tr>"
-        )
-    if not rows:
-        rows = ['<tr><td colspan="5"><i>No runs found yet.</i></td></tr>']
+
+def _job_ref(run: Run) -> str:
+    if run.job_id:
+        return f"job {run.job_id}"
+    if run.pid:
+        return f"pid {run.pid}"
+    return ""
+
+
+def _common_prefix_len(a: str, b: str) -> int:
+    """Length of the longest path prefix a and b share up to a '/' boundary."""
+    cut = 0
+    for i in range(min(len(a), len(b))):
+        if a[i] != b[i]:
+            break
+        if a[i] == "/":
+            cut = i + 1
+    return cut
+
+
+def _common_dir(paths: list[str]) -> str:
+    """Directory prefix shared by every path (no trailing slash)."""
+    if not paths:
+        return ""
+    prefix = paths[0]
+    for path in paths[1:]:
+        prefix = prefix[: _common_prefix_len(prefix, path)]
+    common = prefix.rstrip("/")
+    # If the common part is itself a whole run path (e.g. a single run), back
+    # off to its parent so the run still shows a name.
+    if common and any(path == common for path in paths):
+        common = common.rsplit("/", 1)[0]
+    return common
+
+
+def _updated_html(timestamp: datetime | None) -> str:
+    if timestamp is None:
+        return "?"
     return (
-        '<table style="border-spacing:12px 4px">'
-        "<tr><th>Run</th><th>Status</th><th>Updated</th>"
-        "<th>Job/PID</th><th>Run directory</th></tr>" + "".join(rows) + "</table>"
+        f'{timestamp.strftime("%Y-%m-%d %H:%M:%S")} '
+        f'<span style="opacity:0.55">({_age(timestamp)})</span>'
+    )
+
+
+def _runs_table_html(runs: list[Run]) -> str:
+    """Render the run list as an HTML table keyed on the run directory.
+
+    Runs are sorted newest-first; the directory prefix common to all runs is
+    dropped (shown once above the table) so each row's clickable path shows only
+    its distinguishing tail and opens /run. A status dot precedes the path.
+    Per-component web UIs live on the run page, not here.
+    """
+    if not runs:
+        return (
+            '<table style="border-spacing:12px 4px">'
+            '<tr><td><i>No runs found yet.</i></td></tr></table>'
+        )
+    common = _common_dir([str(run.run_dir) for run in runs])
+    epoch = datetime.fromtimestamp(0)
+    rows = []
+    previous = ""
+    for run in sorted(runs, key=lambda r: r.last_updated or epoch, reverse=True):
+        path = str(run.run_dir)
+        rel = path[len(common) :].lstrip("/") if common else path
+        # Blank out the path components shared with the row above (replacing
+        # them with spaces) so only the distinguishing tail shows, aligned.
+        cut = _common_prefix_len(previous, rel)
+        previous = rel
+        indent, unique = " " * cut, html.escape(rel[cut:])
+        query = urllib.parse.urlencode({"dir": path})
+        dot = _DOT_COLORS[run.status]
+        rows.append(
+            "<tr>"
+            '<td style="font-family:monospace;white-space:pre">'
+            f'<span style="color:{dot}" title="{html.escape(run.status.value)}">'
+            "●</span> "
+            f'{indent}<a href="run?{query}" target="_blank">{unique}</a>'
+            "</td>"
+            f'<td style="white-space:nowrap">{_updated_html(run.last_updated)}</td>'
+            f"<td>{html.escape(_job_ref(run))}</td>"
+            "</tr>"
+        )
+    caption = (
+        f'<div style="opacity:0.7;margin-bottom:6px">in '
+        f"<code>{html.escape(common)}/</code></div>"
+        if common
+        else ""
+    )
+    return (
+        caption
+        + '<table style="border-spacing:12px 4px">'
+        "<tr><th>Run directory</th><th>Updated</th><th>Job/PID</th></tr>"
+        + "".join(rows)
+        + "</table>"
+    )
+
+
+def _scan_summary_html(index) -> str:
+    if index.last_scan is not None:
+        when = f"last scan {_age(index.last_scan)} ago ({index.scan_seconds:.2f}s)"
+    else:
+        when = "first scan pending"
+    roots = ", ".join(f"<code>{html.escape(str(r))}</code>" for r in index.roots)
+    tip = html.escape(f"edit {ROOTS_FILE} (one path per line) and it applies next scan")
+    return (
+        f'<span style="opacity:0.7" title="{tip}">{when} · roots: {roots}</span>'
     )
 
 
 def index_app():
-    """Landing page: run list and scan status."""
+    """Landing page: run list, with the scan summary + roots at the bottom.
+
+    A rescan is scheduled to start ``mean + 2*stddev`` of the recent scan
+    durations before the next refresh, so it finishes just in time for the
+    refresh to display fresh results.
+    """
     assert _index is not None
     table = pn.pane.HTML(_runs_table_html(_index.runs), sizing_mode="stretch_width")
-    status = pn.pane.Markdown()
-    roots_md = pn.pane.Markdown()
-    rescan_button = pn.widgets.Button(name="Rescan now")
+    summary = pn.pane.HTML(sizing_mode="stretch_width")
 
     def refresh(*_events) -> None:
         table.object = _runs_table_html(_index.runs)
-        roots_md.object = (
-            f'<span title="edit {ROOTS_FILE}, one path per line, applied '
-            'on rescan" style="cursor:help">Scanned roots:</span> '
-            + ", ".join(f"`{root}`" for root in _index.roots)
-        )
-        if _index.scanning:
-            status.object = "*Scanning…*"
-        elif _index.last_scan is not None:
-            status.object = (
-                f"{len(_index.runs)} runs; last scan {_age(_index.last_scan)} "
-                f"ago took {_index.scan_seconds:.1f}s"
+        summary.object = _scan_summary_html(_index)
+        doc = pn.state.curdoc
+        if doc is not None:
+            lead_ms = min(VIEW_REFRESH_MILLISECONDS, int(_index.scan_lead() * 1000))
+            doc.add_timeout_callback(
+                _index.request_rescan, VIEW_REFRESH_MILLISECONDS - lead_ms
             )
-        else:
-            status.object = "*First scan pending…*"
 
-    rescan_button.on_click(lambda _event: _index.request_rescan())
     # Defer the periodic callback to session load: adding it during the
     # app-factory call makes Bokeh replay a SessionCallbackAdded event on
     # the first document unhold, raising "a callback ... has already been
@@ -211,13 +299,7 @@ def index_app():
 
     return pn.template.VanillaTemplate(
         title="m3dash | MUSCLE3 runs",
-        main=[
-            pn.Column(
-                pn.Row(status, rescan_button),
-                table,
-                roots_md,
-            )
-        ],
+        main=[pn.Column(table, summary)],
     )
 
 
