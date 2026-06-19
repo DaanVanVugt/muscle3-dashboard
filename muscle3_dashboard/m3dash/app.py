@@ -147,6 +147,7 @@ def _age(timestamp: datetime | None) -> str:
 # Status dot colours: blue = running, green = finished OK, red = failed,
 # grey = not started / unknown.
 _DOT_COLORS = {
+    RunStatus.NOT_STARTED: "#bdbdbd",
     RunStatus.RUNNING: "#1976d2",
     RunStatus.FINISHED: "#2e7d32",
     RunStatus.FAILED: "#d32f2f",
@@ -222,14 +223,20 @@ def _runs_table_html(runs: list[Run]) -> str:
         cut = _common_prefix_len(previous, rel)
         previous = rel
         indent, unique = " " * cut, html.escape(rel[cut:])
-        query = urllib.parse.urlencode({"dir": path})
         dot = _DOT_COLORS[run.status]
+        # A not-yet-started (queued) run has no manager log to open yet, so show
+        # its path as plain text rather than a /run link.
+        if run.status is RunStatus.NOT_STARTED:
+            label = unique
+        else:
+            query = urllib.parse.urlencode({"dir": path})
+            label = f'<a href="run?{query}" target="_blank">{unique}</a>'
         rows.append(
             "<tr>"
             '<td style="font-family:monospace;white-space:pre">'
             f'<span style="color:{dot}" title="{html.escape(run.status.value)}">'
             "●</span> "
-            f'{indent}<a href="run?{query}" target="_blank">{unique}</a>'
+            f"{indent}{label}"
             "</td>"
             f'<td style="white-space:nowrap">{_updated_html(run.last_updated)}</td>'
             f"<td>{html.escape(_job_ref(run))}</td>"

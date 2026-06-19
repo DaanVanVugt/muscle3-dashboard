@@ -69,6 +69,7 @@ _FAILURE_RE = re.compile(
 class RunStatus(Enum):
     """Status of a discovered run."""
 
+    NOT_STARTED = "not started"
     RUNNING = "running"
     FINISHED = "finished"
     FAILED = "failed"
@@ -248,6 +249,34 @@ def _run_command(args: list[str], timeout: float = 10.0) -> str | None:
     return result.stdout
 
 
+#: Per-job-id detection result: run dir for a not-yet-started muscle3 job, or
+#: None if the job isn't one. A job's batch script doesn't change, so cache it.
+_muscle_job_cache: dict[str, Path | None] = {}
+
+
+def _queued_run_dir(job_id: str, workdir: Path) -> Path | None:
+    """Run dir for a muscle3 SLURM job that hasn't written a manager log yet.
+
+    Identifies the job by ``muscle_manager`` in its batch script (dumped with
+    ``scontrol``); returns a literal ``--run-dir`` if the script has one, else
+    the job's workdir (the actual run dir is usually only known at runtime).
+    Returns None when the job isn't a muscle3 run.
+    """
+    if job_id in _muscle_job_cache:
+        return _muscle_job_cache[job_id]
+    script = _run_command(["scontrol", "write", "batch_script", job_id, "-"])
+    result: Path | None = None
+    if script and "muscle_manager" in script:
+        match = re.search(r"--run-dir[= ]\"?([^\s\"';|]+)", script)
+        result = (
+            Path(match.group(1))
+            if match and "$" not in match.group(1)
+            else workdir
+        )
+    _muscle_job_cache[job_id] = result
+    return result
+
+
 def scan_slurm_jobs() -> list[Run]:
     """Discover runs in the working directories of the user's SLURM jobs."""
     out = _run_command(
@@ -273,6 +302,18 @@ def scan_slurm_jobs() -> list[Run]:
             for run_dir in _scan_tree(Path(workdir), max_depth=4)
         ]
         if not candidates:
+            # No manager log yet: surface it if it's a muscle3 job not started.
+            run_dir = _queued_run_dir(job_id, Path(workdir))
+            if run_dir is not None:
+                runs.append(
+                    Run(
+                        run_dir=run_dir,
+                        status=RunStatus.NOT_STARTED,
+                        sources=["slurm"],
+                        job_id=job_id,
+                        job_state=job_state,
+                    )
+                )
             continue
         # A job's workdir often holds many prior runs; the one this job is
         # actually producing is the most recently updated, so attribute the job
