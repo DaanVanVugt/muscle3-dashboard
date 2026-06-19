@@ -23,6 +23,8 @@ import os
 import re
 import socket
 import subprocess
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -51,11 +53,17 @@ PRUNE_DIRS = frozenset(
 #: Maximum directory depth (relative to a run root) for filesystem scans.
 MAX_SCAN_DEPTH = 8
 
-#: Bytes of ``muscle3_manager.log`` tail inspected for status detection.
-_TAIL_BYTES = 8192
+#: Bytes of ``muscle3_manager.log`` tail inspected for status detection. Large
+#: enough to look past a trailing crashed-instance output dump to the manager's
+#: "quit with exit code ..." lines.
+_TAIL_BYTES = 65536
 
 _SUCCESS_RE = re.compile(r"The simulation finished without error\.")
-_FAILURE_RE = re.compile(r"crashed|finished with exit code [1-9]|Instantiator crashed")
+_FAILURE_RE = re.compile(
+    r"crashed|Instantiator crashed|Deadlock detected"
+    # "quit/finished with exit code <nonzero>", incl. signals like -9
+    r"|(?:quit|finished) with exit code -?[1-9]\d*"
+)
 
 
 class RunStatus(Enum):
@@ -102,11 +110,23 @@ class Run:
         }
 
 
+#: Cache of parsed status keyed by manager-log path, valid while its
+#: (mtime, size) is unchanged -- so a finished run isn't re-read every scan.
+_status_cache: dict[str, tuple[float, int, tuple[RunStatus, datetime | None]]] = {}
+
+
 def _log_status(run_dir: Path) -> tuple[RunStatus, datetime | None]:
     """Determine run status from the tail of the manager log."""
     logfile = run_dir / MANAGER_LOG
     try:
         stat = logfile.stat()
+    except OSError:
+        return RunStatus.UNKNOWN, None
+    key = str(logfile)
+    cached = _status_cache.get(key)
+    if cached is not None and cached[0] == stat.st_mtime and cached[1] == stat.st_size:
+        return cached[2]
+    try:
         with logfile.open("rb") as f:
             f.seek(max(0, stat.st_size - _TAIL_BYTES))
             tail = f.read().decode("utf-8", errors="replace")
@@ -114,32 +134,107 @@ def _log_status(run_dir: Path) -> tuple[RunStatus, datetime | None]:
         return RunStatus.UNKNOWN, None
     mtime = datetime.fromtimestamp(stat.st_mtime)
     if _SUCCESS_RE.search(tail):
-        return RunStatus.FINISHED, mtime
-    if _FAILURE_RE.search(tail):
-        return RunStatus.FAILED, mtime
-    return RunStatus.UNKNOWN, mtime
+        result = (RunStatus.FINISHED, mtime)
+    elif _FAILURE_RE.search(tail):
+        result = (RunStatus.FAILED, mtime)
+    else:
+        result = (RunStatus.UNKNOWN, mtime)
+    _status_cache[key] = (stat.st_mtime, stat.st_size, result)
+    return result
+
+
+#: Cache for incremental directory scans: dirpath -> (mtime, child dir names to
+#: descend, is_run_dir). A directory's mtime changes when its direct entries
+#: change, so for an unchanged directory we reuse its listing and skip the
+#: scandir. We still stat every directory, because a new run dir deeper down
+#: bumps only its immediate parent's mtime, not its ancestors'.
+_scan_cache: dict[str, tuple[float, list[str], bool]] = {}
+
+#: Only trust a cached listing once the directory's mtime is this many seconds
+#: in the past. A change in the same coarse mtime tick as our scan would not
+#: advance the mtime, so without this margin a new run added right around a scan
+#: could be missed; re-listing recently-touched directories avoids that.
+_MTIME_SETTLE = 2.0
+
+#: Directory probing is latency-bound (stat/scandir, often over NFS), so each
+#: tree level is probed concurrently.
+_SCAN_WORKERS = 16
+
+
+def _probe_dir(
+    path: Path, depth: int, max_depth: int, now: float
+) -> tuple[float, list[str], bool] | None:
+    """Stat a directory, returning (mtime, child dir names, is_run_dir).
+
+    Reuses the cached listing when the directory's mtime is unchanged and
+    settled; otherwise re-lists it. Returns None if it can't be read.
+    """
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return None
+    cached = _scan_cache.get(str(path))
+    if cached is not None and cached[0] == mtime and mtime < now - _MTIME_SETTLE:
+        return cached
+    try:
+        entries = list(os.scandir(path))
+    except OSError:
+        return None
+    is_run = any(e.name == MANAGER_LOG and e.is_file() for e in entries)
+    # Run dirs hold no nested run dirs worth showing; don't descend.
+    if is_run or depth + 1 >= max_depth:
+        children: list[str] = []
+    else:
+        children = [
+            e.name
+            for e in entries
+            if e.name not in PRUNE_DIRS
+            and not e.name.startswith(".")
+            and e.is_dir(follow_symlinks=False)
+        ]
+    return (mtime, children, is_run)
 
 
 def _scan_tree(root: Path, max_depth: int = MAX_SCAN_DEPTH) -> list[Path]:
-    """Find run directories under root, bounded in depth, with pruning."""
-    run_dirs = []
+    """Find run directories under root, bounded in depth, with pruning.
+
+    Incremental: directories whose mtime is unchanged since the last scan reuse
+    their cached listing instead of being re-read. Each tree level is probed
+    concurrently. The cache is read by the workers and written by this thread
+    between levels, so there is no concurrent mutation.
+    """
     root = root.expanduser()
     if not root.is_dir():
-        return run_dirs
-    base_depth = len(root.parts)
-    for dirpath, dirnames, filenames in os.walk(root, topdown=True):
-        depth = len(Path(dirpath).parts) - base_depth
-        if depth >= max_depth:
-            dirnames[:] = []
-            continue
-        dirnames[:] = [
-            d for d in dirnames if d not in PRUNE_DIRS and not d.startswith(".")
-        ]
-        if MANAGER_LOG in filenames:
-            run_dirs.append(Path(dirpath))
-            # run dirs do not contain nested run dirs, except snapshots of
-            # sub-runs; don't descend
-            dirnames[:] = []
+        return []
+    run_dirs: list[Path] = []
+    seen: set[str] = set()
+    now = time.time()
+    level = [(root, 0)]
+    with ThreadPoolExecutor(max_workers=_SCAN_WORKERS) as pool:
+        while level:
+            results = pool.map(
+                lambda pd: _probe_dir(pd[0], pd[1], max_depth, now), level
+            )
+            next_level: list[tuple[Path, int]] = []
+            for (path, depth), result in zip(level, results, strict=True):
+                if result is None:
+                    continue
+                seen.add(str(path))
+                _scan_cache[str(path)] = result
+                _mtime, children, is_run = result
+                if is_run:
+                    run_dirs.append(path)
+                    continue
+                next_level.extend((path / name, depth + 1) for name in children)
+            level = next_level
+    # Drop cache entries for directories under this root that have disappeared.
+    prefix = str(root)
+    for stale in [
+        k
+        for k in _scan_cache
+        if k not in seen and (k == prefix or k.startswith(prefix + "/"))
+    ]:
+        del _scan_cache[stale]
     return run_dirs
 
 
@@ -173,20 +268,29 @@ def scan_slurm_jobs() -> list[Run]:
         if len(parts) != 3:
             continue
         job_id, job_state, workdir = parts
-        for run_dir in _scan_tree(Path(workdir), max_depth=4):
-            status, mtime = _log_status(run_dir)
-            if status is RunStatus.UNKNOWN and job_state == "RUNNING":
-                status = RunStatus.RUNNING
-            runs.append(
-                Run(
-                    run_dir=run_dir,
-                    status=status,
-                    sources=["slurm"],
-                    job_id=job_id,
-                    job_state=job_state,
-                    last_updated=mtime,
-                )
+        candidates = [
+            (run_dir, *_log_status(run_dir))
+            for run_dir in _scan_tree(Path(workdir), max_depth=4)
+        ]
+        if not candidates:
+            continue
+        # A job's workdir often holds many prior runs; the one this job is
+        # actually producing is the most recently updated, so attribute the job
+        # only to that. The others are still listed via scan_roots (no job id).
+        epoch = datetime.fromtimestamp(0)
+        run_dir, status, mtime = max(candidates, key=lambda c: c[2] or epoch)
+        if status is RunStatus.UNKNOWN and job_state == "RUNNING":
+            status = RunStatus.RUNNING
+        runs.append(
+            Run(
+                run_dir=run_dir,
+                status=status,
+                sources=["slurm"],
+                job_id=job_id,
+                job_state=job_state,
+                last_updated=mtime,
             )
+        )
     return runs
 
 
