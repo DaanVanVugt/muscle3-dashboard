@@ -86,6 +86,7 @@ class Run:
     sources: list[str] = field(default_factory=list)
     job_id: str | None = None
     job_state: str | None = None
+    job_name: str | None = None
     pid: int | None = None
     last_updated: datetime | None = None
     #: Served-UI URLs harvested from instance logs (running runs only).
@@ -103,6 +104,7 @@ class Run:
             "sources": self.sources,
             "job_id": self.job_id,
             "job_state": self.job_state,
+            "job_name": self.job_name,
             "pid": self.pid,
             "last_updated": (
                 self.last_updated.isoformat() if self.last_updated else None
@@ -286,17 +288,17 @@ def scan_slurm_jobs() -> list[Run]:
             "--user",
             getpass.getuser(),
             "--format",
-            "%i|%T|%Z",
+            "%i|%T|%Z|%j",
         ]
     )
     if out is None:
         return []
     runs = []
     for line in out.splitlines():
-        parts = line.strip().split("|")
-        if len(parts) != 3:
+        parts = line.strip().split("|", 3)
+        if len(parts) != 4:
             continue
-        job_id, job_state, workdir = parts
+        job_id, job_state, workdir, job_name = parts
         candidates = [
             (run_dir, *_log_status(run_dir))
             for run_dir in _scan_tree(Path(workdir), max_depth=4)
@@ -312,6 +314,7 @@ def scan_slurm_jobs() -> list[Run]:
                         sources=["slurm"],
                         job_id=job_id,
                         job_state=job_state,
+                        job_name=job_name,
                     )
                 )
             continue
@@ -329,6 +332,7 @@ def scan_slurm_jobs() -> list[Run]:
                 sources=["slurm"],
                 job_id=job_id,
                 job_state=job_state,
+                job_name=job_name,
                 last_updated=mtime,
             )
         )
@@ -425,6 +429,7 @@ def discover_runs(roots: list[Path], *, harvest: bool = False) -> list[Run]:
         existing.sources.extend(s for s in run.sources if s not in existing.sources)
         existing.job_id = existing.job_id or run.job_id
         existing.job_state = existing.job_state or run.job_state
+        existing.job_name = existing.job_name or run.job_name
         existing.pid = existing.pid or run.pid
         if existing.status is RunStatus.UNKNOWN:
             existing.status = run.status

@@ -157,7 +157,8 @@ _DOT_COLORS = {
 
 def _job_ref(run: Run) -> str:
     if run.job_id:
-        return f"job {run.job_id}"
+        name = run.job_name
+        return f"{name} (job {run.job_id})" if name else f"job {run.job_id}"
     if run.pid:
         return f"pid {run.pid}"
     return ""
