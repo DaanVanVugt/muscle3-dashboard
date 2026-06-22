@@ -1,5 +1,6 @@
 import html
 import logging
+import time
 import urllib.parse
 from collections.abc import Callable
 
@@ -29,6 +30,9 @@ _STATUS_FILL = {
 }
 #: Fill-opacity for an idle component (active ones are fully opaque).
 _IDLE_OPACITY = 0.4
+#: A component stays highlighted (opaque) for this long after its last log write,
+#: so it doesn't flicker between writes.
+_ACTIVE_WINDOW_SECONDS = 10.0
 # (stroke colour, width) overlaid on crash buckets so the culprit stands out most.
 _CRASH_STROKE = {"crashed": ("#b71c1c", 5), "killed": ("#e57373", 2)}
 _RUNNING_STATUSES = {
@@ -123,22 +127,39 @@ class YmmslGraphViewer(pn.viewable.Viewer):
     or an unvisualizable model, a short message is shown instead. Component
     boxes are coloured by status (crashed also outlined); clicking a component
     invokes ``on_select`` with its name (used to show that component's logs).
+    The muscle_manager has no box in the graph, so a small button in the card
+    header invokes ``on_manager`` to show its log.
     """
 
     def __init__(
         self,
         data_manager: DataManager,
         on_select: Callable[[str], None] | None = None,
+        on_manager: Callable[[], None] | None = None,
     ) -> None:
         super().__init__()
         self.data_manager = data_manager
         self.on_select = on_select
+        self.on_manager = on_manager
         self._base_svg: str | None = None  # rendered graph, before styling
         self._rendered = False
         self._styled: dict[str, tuple[str, float]] = {}  # name -> (status, opacity)
+        # base name -> monotonic time of its last log write, for the activity glow.
+        self._last_write: dict[str, float] = {}
 
         self.graph = _ClickableSVG()
         self.graph.param.watch(self._on_click, "component")
+        # The manager isn't a component box; surface its log with a small box in
+        # the card header.
+        self.manager_button = pn.widgets.Button(
+            name="muscle_manager log",
+            button_type="default",
+            height=24,
+            width=140,
+            margin=(0, 4),
+            stylesheets=[".bk-btn { font-size: 0.7em; padding: 1px 6px; }"],
+        )
+        self.manager_button.on_click(self._on_manager_click)
         # Small, click-to-expand "approximate layout" warning (<details>).
         self.note = pn.pane.HTML(visible=False, sizing_mode="stretch_width")
         self.message = pn.pane.Markdown(visible=False)  # error / no-graph text
@@ -146,7 +167,13 @@ class YmmslGraphViewer(pn.viewable.Viewer):
             self.note,
             self.graph,
             self.message,
-            title="Simulation graph",
+            header=pn.Row(
+                pn.pane.HTML("<b>Simulation graph</b>"),
+                pn.HSpacer(),
+                self.manager_button,
+                align="center",
+                sizing_mode="stretch_width",
+            ),
             sizing_mode="stretch_width",
             margin=CARD_MARGIN,
         )
@@ -239,22 +266,27 @@ class YmmslGraphViewer(pn.viewable.Viewer):
         return best
 
     def _active_components(self) -> set[str]:
-        """Base component names that wrote log output since the last render."""
-        active: set[str] = set()
+        """Base component names that wrote log output within the last
+        _ACTIVE_WINDOW_SECONDS (records writers seen this render first)."""
+        now = time.monotonic()
         for lines_by_instance in (
             self.data_manager.stdout_log_lines,
             self.data_manager.stderr_log_lines,
         ):
             for instance, lines in lines_by_instance.items():
                 if lines:
-                    active.add(base_name(instance))
-        return active
+                    self._last_write[base_name(instance)] = now
+        return {
+            name
+            for name, written in self._last_write.items()
+            if now - written <= _ACTIVE_WINDOW_SECONDS
+        }
 
     def _component_styles(self) -> dict[str, tuple[str, float]]:
         """Base component name -> (status bucket, fill opacity).
 
-        A component is fully opaque when it wrote log output since the last
-        render, and dimmed to _IDLE_OPACITY otherwise.
+        A component is fully opaque while active (wrote log output within the
+        last _ACTIVE_WINDOW_SECONDS) and dimmed to _IDLE_OPACITY otherwise.
         """
         active = self._active_components()
         styles: dict[str, tuple[str, float]] = {}
@@ -298,6 +330,10 @@ class YmmslGraphViewer(pn.viewable.Viewer):
         self.graph.component = ""
         if self.on_select is not None:
             self.on_select(component)
+
+    def _on_manager_click(self, event) -> None:
+        if self.on_manager is not None:
+            self.on_manager()
 
     def _show_message(self, text: str) -> None:
         self.graph.visible = False

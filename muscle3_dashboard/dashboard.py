@@ -7,7 +7,7 @@ from pathlib import Path
 import panel as pn
 
 from muscle3_dashboard.components.component_summary import ComponentSummaryViewer
-from muscle3_dashboard.components.log_files import LogFilesViewer
+from muscle3_dashboard.components.log_files import MANAGER, LogFilesViewer
 from muscle3_dashboard.components.profiling_information import (
     ProfilingInformationViewer,
 )
@@ -66,6 +66,7 @@ class Dashboard(pn.viewable.Viewer):
         self.ymmsl_graph_viewer = YmmslGraphViewer(
             self.data_manager,
             on_select=self._show_logs_for,
+            on_manager=self._show_manager_log,
         )
         self.component_summary_viewer = ComponentSummaryViewer(self.data_manager)
         self.log_files_viewer = LogFilesViewer(self.data_manager)
@@ -121,15 +122,18 @@ class Dashboard(pn.viewable.Viewer):
         )
 
     def _updated_html(self) -> str:
+        """Absolute time of the most recent write across all log files."""
         ts = self.data_manager.logs_last_updated
         if ts is None:
             return ""
         age = (datetime.now() - ts).total_seconds()
         if age < 60:
-            return f"updated {max(0, int(age))} s ago"
-        if age < 3600:
-            return f"updated {int(age // 60)} min ago"
-        return f"updated at {ts.strftime('%H:%M:%S')}"
+            rel = f"{max(0, int(age))} s ago"
+        elif age < 3600:
+            rel = f"{int(age // 60)} min ago"
+        else:
+            rel = f"{int(age // 3600)} h ago"
+        return f"last log write {ts.strftime('%H:%M:%S')} ({rel})"
 
     def _update_header(self, event) -> None:
         self.header_pane.object = self._header_html()
@@ -165,6 +169,10 @@ class Dashboard(pn.viewable.Viewer):
         """Show the clicked component's summary and its log."""
         self.component_summary_viewer.show(source)
         self.log_files_viewer.show_source(source)
+
+    def _show_manager_log(self) -> None:
+        """Show the muscle_manager log (it has no box in the graph)."""
+        self.log_files_viewer.show_source(MANAGER)
 
     def session_created(self) -> None:
         """Poll the logs once the session has loaded."""
