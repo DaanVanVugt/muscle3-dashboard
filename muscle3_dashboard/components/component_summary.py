@@ -9,6 +9,7 @@ import param
 
 from muscle3_dashboard.constants import CARD_MARGIN
 from muscle3_dashboard.data_manager import DataManager
+from muscle3_dashboard.pathlink import copy_link
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,41 @@ class _ClickableHTML(pn.reactive.ReactiveHTML):
     }
 
 
+class _CopyButton(pn.reactive.ReactiveHTML):
+    """A small button that copies arbitrary text (passed base64) to the
+    clipboard, with a brief "copied" confirmation.
+
+    The text is base64-encoded for the same reason the HTML/SVG viewers use it:
+    it sidesteps Panel's string sanitizer and keeps newlines/quotes intact.
+    Falls back to a hidden textarea + execCommand when ``navigator.clipboard``
+    is unavailable (plain-http access).
+    """
+
+    payload_b64 = param.String(default="")
+    label = param.String(default="⧉ copy contents")
+
+    _template = (
+        '<button id="b" onclick="${script(\'copy\')}" '
+        'style="cursor:pointer;font-size:0.85em;padding:2px 8px;'
+        'border:1px solid #ccc;border-radius:4px;background:#fafafa">'
+        "{{ label }}</button>"
+    )
+    _scripts = {
+        "copy": (
+            "const t = data.payload_b64 ? new TextDecoder().decode("
+            "Uint8Array.from(atob(data.payload_b64), c => c.charCodeAt(0))) : '';"
+            "const done = () => { const o = data.label;"
+            "b.textContent = '\\u2713 copied';"
+            "setTimeout(() => { b.textContent = o; }, 1200); };"
+            "if (navigator.clipboard) { navigator.clipboard.writeText(t).then(done); }"
+            "else { const a = document.createElement('textarea'); a.value = t;"
+            "a.style.position = 'fixed'; a.style.opacity = '0';"
+            "document.body.appendChild(a); a.select();"
+            "document.execCommand('copy'); a.remove(); done(); }"
+        ),
+    }
+
+
 class ComponentSummaryViewer(pn.viewable.Viewer):
     """Show a clicked component: a ymmsl2svg-style port block, its program /
     settings / description (with referenced text files as inline links), and a
@@ -85,13 +121,24 @@ class ComponentSummaryViewer(pn.viewable.Viewer):
             value="", language="text", readonly=True, visible=False,
             sizing_mode="stretch_width", height=360,
         )
+        # Header above the read-only viewer: the file path as a click-to-copy
+        # link, a copy-contents button, and a close button.
+        self.editor_path = pn.pane.HTML("", visible=False, align="center")
+        self.editor_copy = _CopyButton(visible=False, align="center")
         self.editor_close = pn.widgets.Button(
             name="✕ close", button_type="light", visible=False,
-            width=90, margin=(4, 4), align="end",
+            width=90, margin=(4, 4), align="center",
         )
         self.editor_close.on_click(self._close_editor)
+        self.editor_header = pn.Row(
+            self.editor_path,
+            pn.HSpacer(),
+            self.editor_copy,
+            self.editor_close,
+            sizing_mode="stretch_width",
+        )
         self.card = pn.Card(
-            pn.Column(self.block, self.details, self.editor_close, self.editor),
+            pn.Column(self.block, self.details, self.editor_header, self.editor),
             title="Component",
             margin=CARD_MARGIN,
             sizing_mode="stretch_width",
@@ -117,8 +164,7 @@ class ComponentSummaryViewer(pn.viewable.Viewer):
             comp = {
                 str(c.name): c for c in cfg.root_model().components.values()
             }.get(component_name)
-        self.editor.visible = False
-        self.editor_close.visible = False
+        self._close_editor()
         if comp is None:
             self.block.visible = False
             self.details.html_b64 = _b64(
@@ -145,6 +191,10 @@ class ComponentSummaryViewer(pn.viewable.Viewer):
         if path and path in self._text_files:
             self._open(path)
 
+    def _editor_widgets(self):
+        """The read-only viewer widgets shown/hidden together."""
+        return (self.editor, self.editor_path, self.editor_copy, self.editor_close)
+
     def _open(self, path: str) -> None:
         try:
             data = Path(path).read_bytes()[:_MAX_FILE_BYTES]
@@ -153,12 +203,18 @@ class ComponentSummaryViewer(pn.viewable.Viewer):
             text = f"# Could not read {path}: {e}"
         self.editor.language = _LANGUAGES.get(Path(path).suffix.lower(), "text")
         self.editor.value = text
-        self.editor.visible = True
-        self.editor_close.visible = True
+        # Header: the filename as a click-to-copy link for the full path, and a
+        # button to copy the file's contents.
+        self.editor_path.object = (
+            "<b>File:</b> " + copy_link(Path(path).name, Path(path))
+        )
+        self.editor_copy.payload_b64 = _b64(text)
+        for widget in self._editor_widgets():
+            widget.visible = True
 
     def _close_editor(self, _event=None) -> None:
-        self.editor.visible = False
-        self.editor_close.visible = False
+        for widget in self._editor_widgets():
+            widget.visible = False
 
     def __panel__(self):
         return self.card
@@ -178,8 +234,9 @@ _DH, _CR = 3.0, 2.5  # diamond half-width, circle radius
 
 
 def _display_name(comp, name: str) -> str:
+    # No space before the bracket, matching libmuscle's name[index] naming.
     mult = list(comp.multiplicity or [])
-    return f"{name} [{','.join(map(str, mult))}]" if mult else name
+    return f"{name}[{','.join(map(str, mult))}]" if mult else name
 
 
 def _component_block_svg(comp, name: str) -> tuple[str, float, float]:

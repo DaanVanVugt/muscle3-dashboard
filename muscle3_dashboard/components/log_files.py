@@ -1,10 +1,10 @@
 import html
-import re
 
 import panel as pn
 
 from muscle3_dashboard.constants import CARD_MARGIN, MAX_LINES, TERMINAL_HEIGHT
 from muscle3_dashboard.data_manager import DataManager
+from muscle3_dashboard.instances import base_name, instance_label, instance_sort_key
 from muscle3_dashboard.pathlink import copy_link
 
 MANAGER = "muscle_manager"
@@ -12,23 +12,6 @@ MANAGER = "muscle_manager"
 #: Above this many instances the side-by-side radio buttons get unwieldy, so a
 #: dropdown is used instead.
 _MAX_RADIO_INSTANCES = 20
-
-
-def _base_name(source: str) -> str:
-    """Strip a multiplicity suffix: ``nice_inv[4]`` -> ``nice_inv``."""
-    return re.sub(r"\[.*\]$", "", source)
-
-
-def _instance_sort_key(name: str):
-    """Sort instances by their numeric index (``nice_inv[2]`` before ``[10]``)."""
-    match = re.search(r"\[(\d+)\]", name)
-    return (int(match.group(1)),) if match else (-1,)
-
-
-def _instance_label(name: str) -> str:
-    """Short label for an instance button: the index inside the brackets."""
-    match = re.search(r"\[(.+)\]$", name)
-    return match.group(1) if match else name
 
 
 class LogFilesViewer(pn.viewable.Viewer):
@@ -91,9 +74,9 @@ class LogFilesViewer(pn.viewable.Viewer):
             (
                 name
                 for name in self.data_manager.stdout_log_analyzers
-                if _base_name(name) == source
+                if base_name(name) == source
             ),
-            key=_instance_sort_key,
+            key=instance_sort_key,
         )
         return matches or [source]
 
@@ -109,7 +92,7 @@ class LogFilesViewer(pn.viewable.Viewer):
         if len(instances) <= _MAX_RADIO_INSTANCES:
             widget = pn.widgets.RadioButtonGroup(
                 # label = instance number, value = full instance name
-                options={_instance_label(name): name for name in instances},
+                options={instance_label(name): name for name in instances},
                 value=self._instance,
                 align="center",
             )
@@ -166,12 +149,22 @@ class LogFilesViewer(pn.viewable.Viewer):
         Called when a component is clicked in the graph or a row in the
         log-messages table; ``muscle_manager`` shows the manager log. For a
         component with multiple instances (multiplicity, e.g. ``nice_inv[4]``)
-        an instance selector is shown. Picks the stream automatically: stderr
-        when the chosen instance has messages there, stdout otherwise.
+        an instance selector is shown. Lands on the instance that actually has
+        stderr output (the crashing one for an auto-opened crash, not just
+        instance 0), and picks the stream automatically: stderr when the chosen
+        instance has messages there, stdout otherwise.
         """
         self.source = source
         if source != MANAGER:
-            self._build_instance_selector(self._instances_for(source))
+            instances = self._instances_for(source)
+            # Prefer the first instance with stderr output so an auto-opened
+            # crash shows the traceback rather than instance 0's empty stdout.
+            preferred = next(
+                (i for i in instances if f"{i} - stderr" in self._has_output), None
+            )
+            if preferred is not None:
+                self._instance = preferred
+            self._build_instance_selector(instances)
             self.stream_toggle.value = (
                 "stderr"
                 if f"{self._instance} - stderr" in self._has_output

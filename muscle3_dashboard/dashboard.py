@@ -1,6 +1,5 @@
 import contextlib
 import html
-import re
 from datetime import datetime
 from functools import lru_cache
 from importlib.metadata import PackageNotFoundError, version
@@ -15,6 +14,7 @@ from muscle3_dashboard.components.profiling_information import (
 )
 from muscle3_dashboard.components.ymmsl_graph import YmmslGraphViewer
 from muscle3_dashboard.data_manager import DataManager
+from muscle3_dashboard.instances import base_name
 from muscle3_dashboard.pathlink import path_html
 
 # Material design gives cleaner cards/typography than the default.
@@ -138,19 +138,15 @@ class Dashboard(pn.viewable.Viewer):
         """Base name of the likely-responsible crashed component, if any.
 
         The culprit is one that exited with a real non-zero code, not a
-        collateral SIGKILL (-9) / generic crash after another failed (mirrors
-        the crash-analysis split). Returns the first such component's base name.
+        collateral SIGKILL (-9) / generic crash after another failed. Uses the
+        same structured classifier (``Component.crash_kind``) as the graph, so
+        the auto-opened log and the graph's red outline always agree. Returns
+        the first culprit's base name.
         """
         components = self.data_manager.manager_log_analyzer.components
         for name, component in components.items():
-            message = component.exit_code_message
-            if (
-                message
-                and message != "0"
-                and "-9" not in message
-                and "crashed" not in message
-            ):
-                return re.sub(r"\[.*\]$", "", name)
+            if component.crash_kind == "culprit":
+                return base_name(name)
         return None
 
     def _auto_open_crash(self, event) -> None:

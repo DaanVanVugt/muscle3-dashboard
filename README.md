@@ -13,6 +13,15 @@ pip install -e .[dev]
 pytest
 ```
 
+The per-run **simulation graph** is drawn from the run's `configuration.ymmsl`
+by [`ymmsl2svg`](https://github.com/multiscale/ymmsl2svg), an optional
+dependency. Install it with the `graph` extra (without it the rest of the
+dashboard works and the graph card is simply hidden):
+
+```bash
+pip install -e .[dev,graph]
+```
+
 # How to use
 ```bash
 # make sure your virtual environment is activated
@@ -28,8 +37,9 @@ Copyright 2026 ITER Organization. The code in this repository is licensed under 
 
 `m3dash` finds your MUSCLE3 runs (via SLURM, local `muscle_manager`
 processes, and a filesystem scan of configurable run roots, default
-`$HOME`) and serves a landing page plus per-run dashboards on a single
-per-user unix socket: `~/.m3dash.sock` (mode 0600).
+`$HOME`) and serves a landing page that lists them plus a per-run
+dashboard for each, on a single per-user unix socket: `~/.m3dash.sock`
+(mode 0600).
 
 On your own machine, add to `~/.ssh/config`. The `%r` token expands to
 the remote username, so the same line works for every user (ITER SDCC
@@ -42,32 +52,12 @@ Host sdcc1
     ExitOnForwardFailure no
 ```
 
+Then http://localhost:4333 is a permanent bookmark for the runs index.
 Pin one specific login node: unix sockets are host-local even on a
 shared filesystem, so sshd and m3dash must be on the same machine.
-(On SDCC, where forwarding is prohibited, use `m3dash connect` instead
-— see "When all forwarding is prohibited" below.)
-
-Many sites prohibit unix-socket forwarding (the symptom is
-`administratively prohibited: open failed` while normal `-L` port
-forwards work). For those, m3dash also listens on a deterministic
-per-user loopback TCP port (`20000 + uid % 10000`); run `m3dash
-sshline` on the login node to print the matching ssh config block.
-Note that unlike the 0600 socket, a loopback port is connectable by
-other users on the same node.
-
-## When all forwarding is prohibited
-
-Some sites disable *both* TCP and unix-socket forwarding, so every
-`ssh -L`/`-R`/`-D` fails with `administratively prohibited`. ssh
-*exec* channels (running a command) are not forwarding and stay
-allowed, so `m3dash connect` tunnels over one: it listens on a local
-port and, per browser connection, runs an ssh command whose remote end
-is a python3 one-liner bridging stdin/stdout to `~/.m3dash.sock`.
-Nothing of m3dash is needed on the remote PATH — only python3, which
-is always there (whereas ncat/socat are often absent or restricted).
 
 **Start the server** where the environment is set up. On a module-based
-cluster the m3dash command lives behind `module load`, which a
+cluster the `m3dash` command lives behind `module load`, which a
 non-interactive ssh shell does *not* run, so start it from an
 interactive context — add to `~/.bashrc`:
 
@@ -79,60 +69,45 @@ command -v m3dash >/dev/null && m3dash ensure
 (for always-on without an interactive login, run the same from a
 `cron @reboot` or a `systemd --user` unit instead).
 
-**Bridge from your machine:**
+## TCP access
 
-```bash
-m3dash connect <login-node>
-```
+Many sites prohibit unix-socket forwarding (the symptom is
+`administratively prohibited: open failed` while normal `-L` port
+forwards work). For those, m3dash also listens on a deterministic
+per-user loopback TCP port (`20000 + uid % 10000`); forward it with a
+plain `LocalForward 127.0.0.1:<port> 127.0.0.1:<port>`. Disable it with
+`m3dash serve --no-tcp`, or pick a port with `--tcp <port>`. Note that
+unlike the 0600 socket, a loopback port is connectable by other users
+on the same node.
 
-Add an ssh ControlMaster so each connection reuses one authenticated
-session rather than re-handshaking:
+When serving on TCP from a desktop session (e.g. NoMachine, detected
+via `$DISPLAY`), `m3dash serve` opens a browser at the page
+automatically; force it on/off with `--open-browser` / `--no-open-browser`.
 
-```
-Host <login-node>
-    ControlMaster auto
-    ControlPath ~/.ssh/cm-%r@%h:%p
-    ControlPersist 10m
-```
+## Commands
 
-Pass through a bastion with `--ssh 'ssh -J bastion'`, target a
-non-default socket with `--remote-socket`, or swap the remote bridge
-command entirely with `--remote-cmd` (e.g. `'ncat -U ~/.m3dash.sock'`
-where ncat is allowed).
+* `m3dash serve` — run the server (blocking). `--tcp`/`--no-tcp`,
+  `--socket`, `--address`, `--ws-origin`, `--open-browser`.
+* `m3dash ensure` — start `serve` in the background unless it is already
+  running; idempotent and quiet, for `~/.bashrc`.
+* `m3dash ls [--json]` — list discovered runs on the terminal.
 
-Then http://localhost:4333 is a permanent bookmark. If you use a
-different local port, pass `--local-port` to `m3dash serve` too so the
-websocket origin check matches.
-
-Other commands: `m3dash ls [--json]` lists discovered runs;
-`m3dash serve --tcp 5006` also serves on loopback TCP for debugging.
 Run roots are configured in `~/.config/m3dash/roots` (one path per
 line, default `$HOME`); the server re-reads it on every rescan, so
 edits apply without a restart.
 
+## The per-run dashboard
 
-## Reaching live actor UIs (proxy)
+Clicking a run opens its dashboard, a single page top to bottom:
 
-When a run is active, m3dash harvests any `http://...` URL its actors
-print and reverse-proxies each one under its own subdomain of the
-address you already use, e.g. `http://t<token>.localhost:4333`. Because
-browsers resolve any `*.localhost` name to loopback, this needs no DNS
-and no extra forward -- it rides the same socket/`connect` tunnel as the
-dashboard. The per-run page lists these links per component under a
-"Web UIs" card.
-
-A subdomain (not a path prefix) is used so the actor's absolute
-`/static` and `/ws` URLs keep working, and the proxy rewrites the
-WebSocket `Origin` to `localhost:<target-port>` so the target's Bokeh
-origin check passes. Subdomain proxying works over the loopback access
-path (socket or `m3dash connect`); set `--local-port` to match the port
-you reach m3dash on so the generated links are correct.
-## Log exploration with logdy (optional)
-
-If the [`logdy`](https://logdy.dev) binary is available, m3dash starts one
-`logdy follow` per run over that run's log files and embeds its web log
-explorer (search, filter, live tail) as an "Explore (logdy)" tab in the
-run page's Log files card, reached through the same subdomain proxy as
-actor UIs. Point at a binary with `M3DASH_LOGDY=/path/to/logdy` (or put
-`logdy` on `PATH`); extra flags via `M3DASH_LOGDY_ARGS`. Without it, the
-run page keeps the built-in log terminals.
+* a **simulation graph** of the coupling (from `configuration.ymmsl` via
+  the optional `graph` extra), with components coloured by status
+  (running / finished / crashed) and the likely-responsible component on
+  a crash outlined and its log opened automatically; click any component
+  to inspect it;
+* a **component summary** for the clicked component — a port block plus
+  its program, settings and description, with referenced text files as
+  inline links that open in a read-only viewer (with copy-path and
+  copy-contents buttons);
+* the **log files** — the manager log and each component's stdout/stderr,
+  with an instance selector for multiplicity (vector-port) components.

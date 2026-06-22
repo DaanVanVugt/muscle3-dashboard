@@ -57,6 +57,30 @@ class Component:
             pass  # exit_code could not be parsed as integer
         return self.exit_code
 
+    @property
+    def crash_kind(self) -> str | None:
+        """Classify this component's exit for crash triage, or None if clean.
+
+        Reads the structured ``exit_code`` (not the formatted message) so the
+        classification is exact:
+
+        * ``"culprit"`` -- a real non-zero exit code (or a crash signal other
+          than SIGKILL): the likely root cause of a failure.
+        * ``"killed"`` -- SIGKILL (``-9``) or a generic ``"crashed"`` with no
+          code: usually collateral damage after another component failed first.
+        * ``None`` -- no exit recorded, or a clean exit (``""``/``"0"``).
+        """
+        code = self.exit_code
+        if code in ("", "0"):
+            return None
+        if code == "crashed":
+            return "killed"
+        try:
+            return "killed" if int(code) == -9 else "culprit"
+        except ValueError:
+            # An unrecognised, non-empty code: treat as a real failure.
+            return "culprit"
+
 
 class ManagerLogAnalyzer(BaseLogAnalyzer):
     """Log analyzer for muscle_manager log file"""

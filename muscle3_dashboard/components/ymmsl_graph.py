@@ -2,7 +2,6 @@ import base64
 import contextlib
 import html
 import logging
-import re
 from collections.abc import Callable
 
 import panel as pn
@@ -10,6 +9,7 @@ import param
 
 from muscle3_dashboard.constants import CARD_MARGIN
 from muscle3_dashboard.data_manager import DataManager
+from muscle3_dashboard.instances import base_name
 from muscle3_dashboard.loganalyzer.manager import ComponentStatus
 
 logger = logging.getLogger(__name__)
@@ -221,14 +221,11 @@ class YmmslGraphViewer(pn.viewable.Viewer):
 
     def _bucket(self, component) -> str:
         """Map a component's status / exit code to a colour bucket."""
-        message = component.exit_code_message
-        if message and message != "0":
-            # SIGKILL (-9) / generic "crashed" are usually collateral damage
-            # after another component failed; a real non-zero exit is the
-            # likely culprit, so rank it highest.
-            if "-9" in message or "crashed" in message:
-                return "killed"
-            return "crashed"
+        crash = component.crash_kind  # "culprit" | "killed" | None (structured)
+        if crash == "culprit":
+            return "crashed"  # likely root cause: ranked highest, strong red
+        if crash == "killed":
+            return "killed"  # collateral SIGKILL / generic crash: pale red
         if component.status in _RUNNING_STATUSES:
             return "running"
         if component.status in _FINISHED_STATUSES:
@@ -245,7 +242,7 @@ class YmmslGraphViewer(pn.viewable.Viewer):
         best: dict[str, str] = {}
         components = self.data_manager.manager_log_analyzer.components
         for name, component in components.items():
-            base = re.sub(r"\[.*\]$", "", name)
+            base = base_name(name)
             bucket = self._bucket(component)
             current = best.get(base)
             if current is None or _BUCKET_PRIORITY[bucket] > _BUCKET_PRIORITY[current]:
@@ -266,7 +263,7 @@ class YmmslGraphViewer(pn.viewable.Viewer):
             self.data_manager.stderr_log_analyzers,
         ):
             for instance, analyzer in analyzers.items():
-                base = re.sub(r"\[.*\]$", "", instance)
+                base = base_name(instance)
                 with contextlib.suppress(OSError):
                     sizes[base] = sizes.get(base, 0) + analyzer.path.stat().st_size
 
