@@ -57,6 +57,30 @@ class Component:
             pass  # exit_code could not be parsed as integer
         return self.exit_code
 
+    @property
+    def crash_kind(self) -> str | None:
+        """Classify this component's exit for crash triage, or None if clean.
+
+        Reads the structured ``exit_code`` (not the formatted message) so the
+        classification is exact:
+
+        * ``"culprit"`` -- a real non-zero exit code (or a crash signal other
+          than SIGKILL): the likely root cause of a failure.
+        * ``"killed"`` -- SIGKILL (``-9``) or a generic ``"crashed"`` with no
+          code: usually collateral damage after another component failed first.
+        * ``None`` -- no exit recorded, or a clean exit (``""``/``"0"``).
+        """
+        code = self.exit_code
+        if code in ("", "0"):
+            return None
+        if code == "crashed":
+            return "killed"
+        try:
+            return "killed" if int(code) == -9 else "culprit"
+        except ValueError:
+            # An unrecognised, non-empty code: treat as a real failure.
+            return "culprit"
+
 
 class ManagerLogAnalyzer(BaseLogAnalyzer):
     """Log analyzer for muscle_manager log file"""
@@ -177,15 +201,19 @@ class ManagerLogAnalyzer(BaseLogAnalyzer):
     def to_dataframe(self) -> pd.DataFrame:
         """Create dataframe for status table viewer, sorted by component
         name to match the log messages table"""
+        rows = [
+            {
+                "name": component.name,
+                "status": component.status,
+                "exit_code": component.exit_code_message,
+            }
+            for component in self.components.values()
+        ]
+        # Pass explicit columns so set_index("name") still works when no
+        # components have been parsed yet (e.g. an empty or not-yet-populated
+        # manager log), instead of raising "None of ['name'] are in the columns".
         return (
-            pd.DataFrame(
-                {
-                    "name": component.name,
-                    "status": component.status,
-                    "exit_code": component.exit_code_message,
-                }
-                for component in self.components.values()
-            )
+            pd.DataFrame(rows, columns=["name", "status", "exit_code"])
             .set_index("name")
             .sort_index()
         )
