@@ -14,8 +14,8 @@ from muscle3_dashboard.loganalyzer.base import BaseLogAnalyzer
 _LOGPARSER = re.compile(
     r"""
     ^(?P<component>\S+)         # Source of log message: muscle_manager or remote component
-    \ (?P<datetime>\S+\ \S+)    # Lazy way to capture the date + time
-    \ (?P<loglevel>\S+)         # Log level: INFO / DEBUG / etc.
+    \ +(?P<datetime>\S+\ \S+)   # Date + time; the source column is padded, allow several spaces
+    \ +(?P<loglevel>\S+)        # Log level: INFO / DEBUG / etc.
     \ +(?P<name>\S+):           # Python module for manager logs, or remote component name
     \s*(?P<message>.*)$         # Log message
     """,  # noqa: E501
@@ -57,6 +57,30 @@ class Component:
             pass  # exit_code could not be parsed as integer
         return self.exit_code
 
+    @property
+    def crash_kind(self) -> str | None:
+        """Classify this component's exit for crash triage, or None if clean.
+
+        Reads the structured ``exit_code`` (not the formatted message) so the
+        classification is exact:
+
+        * ``"culprit"`` -- a real non-zero exit code (or a crash signal other
+          than SIGKILL): the likely root cause of a failure.
+        * ``"killed"`` -- SIGKILL (``-9``) or a generic ``"crashed"`` with no
+          code: usually collateral damage after another component failed first.
+        * ``None`` -- no exit recorded, or a clean exit (``""``/``"0"``).
+        """
+        code = self.exit_code
+        if code in ("", "0"):
+            return None
+        if code == "crashed":
+            return "killed"
+        try:
+            return "killed" if int(code) == -9 else "culprit"
+        except ValueError:
+            # An unrecognised, non-empty code: treat as a real failure.
+            return "culprit"
+
 
 class ManagerLogAnalyzer(BaseLogAnalyzer):
     """Log analyzer for muscle_manager log file"""
@@ -95,6 +119,9 @@ class ManagerLogAnalyzer(BaseLogAnalyzer):
             "CRITICAL": 0,
             "unknown": 0,
         }
+        self.messages_per_level_by_source: dict[str, dict[str, int]] = {}
+        """Number of parsed messages per log level, per source (the
+        muscle_manager itself or a remote component)"""
         self._lines_read = 0
         self._lines_parsed = 0
         super().__init__(logfile)
@@ -122,6 +149,10 @@ class ManagerLogAnalyzer(BaseLogAnalyzer):
             if loglevel not in self._messages_per_level:
                 loglevel = "unknown"
             self._messages_per_level[loglevel] += 1
+            per_source = self.messages_per_level_by_source.setdefault(
+                match.group("component"), dict.fromkeys(self._messages_per_level, 0)
+            )
+            per_source[loglevel] += 1
 
         # Update externally visible state
         self.param.update(
@@ -168,15 +199,37 @@ class ManagerLogAnalyzer(BaseLogAnalyzer):
         return self.components[name]
 
     def to_dataframe(self) -> pd.DataFrame:
-        """Create dataframe for status table viewer"""
-        return pd.DataFrame(
+        """Create dataframe for status table viewer, sorted by component
+        name to match the log messages table"""
+        rows = [
             {
                 "name": component.name,
                 "status": component.status,
                 "exit_code": component.exit_code_message,
             }
             for component in self.components.values()
-        ).set_index("name")
+        ]
+        # Pass explicit columns so set_index("name") still works when no
+        # components have been parsed yet (e.g. an empty or not-yet-populated
+        # manager log), instead of raising "None of ['name'] are in the columns".
+        return (
+            pd.DataFrame(rows, columns=["name", "status", "exit_code"])
+            .set_index("name")
+            .sort_index()
+        )
+
+    @property
+    def simulation_state(self) -> str:
+        """Overall run state derived from per-component data, one of
+        'not started', 'running', 'finished' or 'failed'."""
+        components = self.components.values()
+        if any(c.exit_code not in ("", "0") for c in components):
+            return "failed"
+        if components and all(c.status is ComponentStatus.FINISHED for c in components):
+            return "finished"
+        if all(c.status is ComponentStatus.NOT_STARTED for c in components):
+            return "not started"
+        return "running"
 
     @property
     def status_message(self):

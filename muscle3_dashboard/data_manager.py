@@ -27,16 +27,29 @@ class DataManager(param.Parameterized):
         self.manager_log_analyzer = ManagerLogAnalyzer(logfile, components)
         self.stdout_log_analyzers = {}
         self.stderr_log_analyzers = {}
-        for component in (run_folder / "instances").iterdir():
+        self._setup_component_logs(run_folder)
+        self.manager_log_lines: list[str] = []
+        self.stdout_log_lines: dict[str, list[str]] = {}
+        self.stderr_log_lines: dict[str, list[str]] = {}
+
+    def _setup_component_logs(self, run_folder: Path) -> None:
+        """Locate per-component logs under ``instances/<component>/``.
+
+        ``muscle_manager --start-all`` launches every instance and redirects
+        its stdout and stderr to ``instances/<component>/{stdout,stderr}.txt``.
+        The dir is absent before a run starts (and for non-run folders), so its
+        lookup must not be assumed.
+        """
+        instances = run_folder / "instances"
+        if not instances.is_dir():
+            return
+        for component in instances.iterdir():
             self.stdout_log_analyzers[component.name] = BaseLogAnalyzer(
                 component / "stdout.txt"
             )
             self.stderr_log_analyzers[component.name] = BaseLogAnalyzer(
                 component / "stderr.txt"
             )
-        self.manager_log_lines: list[str] = []
-        self.stdout_log_lines: dict[str, list[str]] = {}
-        self.stderr_log_lines: dict[str, list[str]] = {}
 
     def update(self) -> None:
         """Update viewers whenever change in logfiles is detected"""
