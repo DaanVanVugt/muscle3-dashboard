@@ -6,7 +6,7 @@ from collections.abc import Callable
 import panel as pn
 import param
 
-from muscle3_dashboard.constants import CARD_MARGIN
+from muscle3_dashboard.constants import CARD_MARGIN, SHOW_PORT_ICONS
 from muscle3_dashboard.data_manager import DataManager
 from muscle3_dashboard.instances import base_name
 from muscle3_dashboard.loganalyzer.manager import ComponentStatus
@@ -247,6 +247,9 @@ class YmmslGraphViewer(pn.viewable.Viewer):
         # of it is final: draw (or fail) once and never call it again.
         self._svg_done = True
         ymmsl2svg_settings.debug = False
+        # hasattr-guarded so an older ymmsl2svg without the option still renders.
+        if not SHOW_PORT_ICONS and hasattr(ymmsl2svg_settings, "disable_port_icons"):
+            ymmsl2svg_settings.disable_port_icons()
         note_html = ""
         try:
             ymmsl2svg_settings.check_timelines = True
