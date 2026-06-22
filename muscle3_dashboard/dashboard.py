@@ -7,15 +7,14 @@ from pathlib import Path
 
 import panel as pn
 
-from muscle3_dashboard.components.crash_analysis import CrashAnalysisViewer
+from muscle3_dashboard.components.component_summary import ComponentSummaryViewer
 from muscle3_dashboard.components.log_files import LogFilesViewer
-from muscle3_dashboard.components.log_messages_table import LogMessagesTableViewer
 from muscle3_dashboard.components.profiling_information import (
     ProfilingInformationViewer,
 )
-from muscle3_dashboard.components.status_table import StatusTableViewer
 from muscle3_dashboard.components.ymmsl_graph import YmmslGraphViewer
 from muscle3_dashboard.data_manager import DataManager
+from muscle3_dashboard.instances import base_name
 from muscle3_dashboard.pathlink import path_html
 
 # Material design gives cleaner cards/typography than the default.
@@ -52,17 +51,9 @@ def _dashboard_version() -> str:
 
 
 class Dashboard(pn.viewable.Viewer):
-    """Main dashboard for muscle3_dashboard app.
+    """Main dashboard for muscle3_dashboard app."""
 
-    ``web_urls`` optionally maps a component name to an HTML link to its
-    served UI; when given it is shown as a column in the status table.
-    """
-
-    def __init__(
-        self,
-        run_folder: Path,
-        web_urls: dict[str, str] | None = None,
-    ) -> None:
+    def __init__(self, run_folder: Path) -> None:
         self.run_folder = run_folder
 
         self.template = pn.template.MaterialTemplate(
@@ -72,18 +63,12 @@ class Dashboard(pn.viewable.Viewer):
 
         self.data_manager = DataManager(run_folder)
 
-        self.status_table_viewer = StatusTableViewer(
-            self.data_manager,
-            web_urls=web_urls,
-            on_select=self._show_logs_for,
-        )
-        self.log_messages_table_viewer = LogMessagesTableViewer(
+        self.ymmsl_graph_viewer = YmmslGraphViewer(
             self.data_manager,
             on_select=self._show_logs_for,
         )
-        self.ymmsl_graph_viewer = YmmslGraphViewer(self.data_manager)
+        self.component_summary_viewer = ComponentSummaryViewer(self.data_manager)
         self.log_files_viewer = LogFilesViewer(self.data_manager)
-        self.crash_analysis_viewer = CrashAnalysisViewer(self.data_manager)
         self.profiling_information_viewer = ProfilingInformationViewer(
             self.data_manager
         )
@@ -95,24 +80,27 @@ class Dashboard(pn.viewable.Viewer):
         )
         self.template.header.append(self.header_pane)
         self.data_manager.param.watch(self._update_header, "data_updated")
+        # Auto-open the responsible component's log on the first detected crash.
+        # Registered after the viewers so their log state is populated first.
+        self._auto_opened = False
+        self.data_manager.param.watch(self._auto_open_crash, "data_updated")
 
-        # Single page, top to bottom: the component status table beside the
-        # simulation graph (to be linked on hover, nodes coloured by status
-        # once the ymmsl2svg graph lands), then all log messages, then log
-        # files, then crash analysis.
+        # Single page, top to bottom: the simulation graph (components coloured
+        # by status, click one for its summary + logs), the clicked component's
+        # summary, then the log files.
         self.template.main.append(
             pn.Column(
-                pn.Row(
-                    self.status_table_viewer,
-                    self.ymmsl_graph_viewer,
-                    sizing_mode="stretch_width",
-                ),
-                self.log_messages_table_viewer,
+                self.ymmsl_graph_viewer,
+                self.component_summary_viewer,
                 self.log_files_viewer,
-                self.crash_analysis_viewer,
                 sizing_mode="stretch_width",
             )
         )
+
+        # Populate everything once now (reads the logs, colours the graph, and
+        # auto-opens the responsible component's log for an already-crashed run)
+        # so the page is correct at load instead of after the first poll.
+        self.data_manager.update()
 
         self.session_created()
 
@@ -146,15 +134,37 @@ class Dashboard(pn.viewable.Viewer):
     def _update_header(self, event) -> None:
         self.header_pane.object = self._header_html()
 
-    def _show_logs_for(self, source: str) -> None:
-        """Show the source's log and mirror the selection in both tables.
+    def _responsible_component(self) -> str | None:
+        """Base name of the likely-responsible crashed component, if any.
 
-        Setting a table's selection programmatically does not fire its
-        click handler, so this cannot loop.
+        The culprit is one that exited with a real non-zero code, not a
+        collateral SIGKILL (-9) / generic crash after another failed. Uses the
+        same structured classifier (``Component.crash_kind``) as the graph, so
+        the auto-opened log and the graph's red outline always agree. Returns
+        the first culprit's base name.
         """
+        components = self.data_manager.manager_log_analyzer.components
+        for name, component in components.items():
+            if component.crash_kind == "culprit":
+                return base_name(name)
+        return None
+
+    def _auto_open_crash(self, event) -> None:
+        """On the first detected crash, show the responsible component's log."""
+        if self._auto_opened:
+            return
+        responsible = self._responsible_component()
+        if responsible is None:
+            return
+        self._auto_opened = True
+        # show_source picks stderr when it has output, which is where the
+        # crashing component's traceback lives.
+        self._show_logs_for(responsible)
+
+    def _show_logs_for(self, source: str) -> None:
+        """Show the clicked component's summary and its log."""
+        self.component_summary_viewer.show(source)
         self.log_files_viewer.show_source(source)
-        self.status_table_viewer.select_source(source)
-        self.log_messages_table_viewer.select_source(source)
 
     def session_created(self) -> None:
         """Set up background tasks when a new session is created"""
