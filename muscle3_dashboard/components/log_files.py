@@ -29,11 +29,8 @@ class LogFilesViewer(pn.viewable.Viewer):
         super().__init__()
         self.data_manager = data_manager
         self.data_manager.param.watch(self.update, "data_updated")
-        self.log_path = self.data_manager.run_folder
         self.manager_terminal = self.log_terminal()
-        self.manager_pane = self.manager_terminal
         self.component_terminals: dict[str, pn.widgets.Terminal] = {}
-        self.component_panes: dict[str, pn.widgets.Terminal] = {}
         self._has_output: set[str] = set()
         self.source = MANAGER
 
@@ -52,7 +49,7 @@ class LogFilesViewer(pn.viewable.Viewer):
         self.stream_toggle.param.watch(self._show_current, "value")
         self.title_pane = pn.pane.HTML("", align="center")
         self.container = pn.pane.Placeholder(
-            self.manager_pane, sizing_mode="stretch_width"
+            self.manager_terminal, sizing_mode="stretch_width"
         )
         self.card = pn.Card(
             self.container,
@@ -86,9 +83,7 @@ class LogFilesViewer(pn.viewable.Viewer):
         Side-by-side number buttons for a handful of instances, a dropdown when
         there are many. Sets ``self._instance`` to the chosen instance name.
         """
-        self._instance = (
-            self._instance if self._instance in instances else instances[0]
-        )
+        self._instance = self._instance if self._instance in instances else instances[0]
         if len(instances) <= _MAX_RADIO_INSTANCES:
             widget = pn.widgets.RadioButtonGroup(
                 # label = instance number, value = full instance name
@@ -115,7 +110,7 @@ class LogFilesViewer(pn.viewable.Viewer):
             self.stream_toggle.disabled = True
             self.instance_slot.visible = False
             shown = MANAGER
-            pane = self.manager_pane
+            pane = self.manager_terminal
             path = self.data_manager.manager_log_analyzer.path
         else:
             self.stream_toggle.disabled = False
@@ -123,7 +118,7 @@ class LogFilesViewer(pn.viewable.Viewer):
             stream = self.stream_toggle.value
             shown = f"{instance} {stream}"
             key = f"{instance} - {stream}"
-            pane = self.component_panes.get(
+            pane = self.component_terminals.get(
                 key, pn.pane.Markdown(f"No output for `{shown}` yet.")
             )
             analyzers = (
@@ -135,9 +130,7 @@ class LogFilesViewer(pn.viewable.Viewer):
             path = analyzer.path if analyzer is not None else None
         # The shown name is itself the click-to-copy link for the log path, so
         # the long path doesn't show (or wrap) in the subtitle.
-        name = (
-            copy_link(shown, path) if path is not None else html.escape(shown)
-        )
+        name = copy_link(shown, path) if path is not None else html.escape(shown)
         self.title_pane.object = (
             f'<span style="white-space:nowrap"><b>Log files</b> — {name}</span>'
         )
@@ -173,7 +166,7 @@ class LogFilesViewer(pn.viewable.Viewer):
         self._show_current()
 
     def log_terminal(self) -> pn.widgets.Terminal:
-        """Get basic terminal"""
+        """Create a blank terminal widget for a log."""
         return pn.widgets.Terminal(
             "",
             sizing_mode="stretch_width",
@@ -183,7 +176,7 @@ class LogFilesViewer(pn.viewable.Viewer):
         )
 
     def update(self, event) -> None:
-        """Method to update log file viewer from listener"""
+        """Append new log lines to the manager and per-component terminals."""
         for line in self.data_manager.manager_log_lines[-MAX_LINES:]:
             self.manager_terminal.write(line)
 
@@ -196,7 +189,6 @@ class LogFilesViewer(pn.viewable.Viewer):
                 key = f"{component} - {stream}"
                 if key not in self.component_terminals:
                     self.component_terminals[key] = self.log_terminal()
-                    self.component_panes[key] = self.component_terminals[key]
                     created = True
                 if lines:
                     self._has_output.add(key)

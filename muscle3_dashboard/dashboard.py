@@ -1,4 +1,3 @@
-import contextlib
 import html
 from datetime import datetime
 from functools import lru_cache
@@ -15,6 +14,7 @@ from muscle3_dashboard.components.profiling_information import (
 from muscle3_dashboard.components.ymmsl_graph import YmmslGraphViewer
 from muscle3_dashboard.data_manager import DataManager
 from muscle3_dashboard.instances import base_name
+from muscle3_dashboard.panel_util import add_session_periodic_callback
 from muscle3_dashboard.pathlink import path_html
 
 # Material design gives cleaner cards/typography than the default.
@@ -167,25 +167,9 @@ class Dashboard(pn.viewable.Viewer):
         self.log_files_viewer.show_source(source)
 
     def session_created(self) -> None:
-        """Set up background tasks when a new session is created"""
-
-        # Update log files
+        """Poll the logs once the session has loaded."""
         # TODO: use watchfiles to subscribe to notifications instead of polling?
-        # Register the periodic callback once the session has loaded rather
-        # than during construction: adding it here (mid-construction) makes
-        # Bokeh replay a SessionCallbackAdded event on the first document
-        # unhold, which raises "a callback ... has already been added with
-        # this ID". Deferring to onload binds it to the live session cleanly.
-        def _start_polling() -> None:
-            pn.state.add_periodic_callback(self.data_manager.update, period=1000)
-
-        if pn.state.curdoc:
-            pn.state.onload(_start_polling)
-        else:
-            # Outside a server session (scripts, tests) there may be no
-            # running event loop to attach the callback to.
-            with contextlib.suppress(RuntimeError):
-                _start_polling()
+        add_session_periodic_callback(self.data_manager.update, 1000)
 
     def __panel__(self):
         return self.template
