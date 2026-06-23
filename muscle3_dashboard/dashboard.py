@@ -29,6 +29,9 @@ class Dashboard(pn.viewable.Viewer):
         )
         self.template = pn.template.VanillaTemplate(
             collapsed_sidebar=True,
+            # "m3dash" brand links back to the run index; title stays per-run.
+            site="m3dash",
+            site_url="/",
             title=title,
         )
 
