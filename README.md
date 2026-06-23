@@ -13,6 +13,15 @@ pip install -e .[dev]
 pytest
 ```
 
+The per-run **simulation graph** is drawn from the run's `configuration.ymmsl`
+by [`ymmsl2svg`](https://github.com/multiscale/ymmsl2svg), an optional
+dependency. Install it with the `graph` extra (without it the rest of the
+dashboard works and the graph card is simply hidden):
+
+```bash
+pip install -e .[dev,graph]
+```
+
 # How to use
 ```bash
 # make sure your virtual environment is activated
@@ -88,4 +97,21 @@ defaulting to the current directory:
 Roots are fixed for a server's life; restart `socket`/`open` to change
 them.
 
-Clicking a run opens its per-run dashboard (see "How to use" above).
+## The per-run dashboard
+
+Clicking a run opens its dashboard, a single page top to bottom:
+
+* a **crash banner** (only on failure) naming the likely-responsible
+  component(s) and any collateral crashes;
+* a **simulation graph** of the coupling (from `configuration.ymmsl` via
+  the optional `graph` extra), with a colour legend and components coloured
+  by status (running / finished / crashed) and the likely-responsible
+  component on a crash outlined and its log opened automatically; click any
+  component to inspect it (without the `graph` extra a dropdown lists the
+  components instead);
+* a **component summary** for the clicked component — a port block plus
+  its program, settings and description, with referenced text files as
+  inline links that open in a read-only viewer (with copy-path and
+  copy-contents buttons);
+* the **log files** — the manager log and each component's stdout/stderr,
+  with an instance selector for multiplicity (vector-port) components.
