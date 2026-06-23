@@ -15,7 +15,7 @@ def assets_path():
 
 
 def test_all_commands_registered():
-    assert set(cli.main.commands) == {"serve", "open", "ls"}
+    assert set(cli.main.commands) == {"socket", "open", "ls"}
 
 
 def test_ls_json(assets_path, monkeypatch):
@@ -39,7 +39,16 @@ def test_ls_defaults_to_cwd(assets_path, monkeypatch):
     assert {"run-accumulator", "run-chease"} <= names
 
 
-def test_serve_has_no_tcp_options():
-    # TCP and the browser now live on `m3dash open`, not `serve`.
-    result = CliRunner().invoke(cli.main, ["serve", "--tcp", "5006"])
+def test_socket_has_no_tcp_options():
+    # TCP and the browser live on `m3dash open`, not `m3dash socket`.
+    result = CliRunner().invoke(cli.main, ["socket", "--tcp", "5006"])
     assert result.exit_code != 0
+
+
+def test_ls_reports_scanned_roots(assets_path, monkeypatch):
+    # Plain (non-JSON) ls notes the scanned roots on stderr.
+    monkeypatch.setattr(discovery, "scan_slurm_jobs", lambda: [])
+    monkeypatch.setattr(discovery, "scan_processes", lambda: [])
+    result = CliRunner().invoke(cli.main, ["ls", str(assets_path)])
+    assert result.exit_code == 0, result.output
+    assert f"Scanned roots: {assets_path}" in result.stderr

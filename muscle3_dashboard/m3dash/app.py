@@ -307,6 +307,10 @@ def serve(
     global _index
     _index = RunIndex(roots)
     _index.start()
+    logger.info(
+        "Scanning for runs under: %s",
+        ", ".join(str(root) for root in roots) or "(none)",
+    )
 
     origins = (_origins(local_port) if socket_path and local_port else []) + (
         _origins(tcp_port) if tcp_port else []

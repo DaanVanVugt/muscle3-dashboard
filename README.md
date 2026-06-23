@@ -51,10 +51,10 @@ shared filesystem, so sshd and m3dash must be on the same machine.
 
 ```bash
 module load IMAS-MUSCLE3        # whatever puts m3dash on PATH
-m3dash serve ~/runs ~/pds       # roots to scan; default: current dir
+m3dash socket ~/runs ~/pds      # roots to scan; default: current dir
 ```
 
-`m3dash serve` runs in the foreground. Note that `m3dash` often lives
+`m3dash socket` runs in the foreground. Note that `m3dash` often lives
 behind `module load`, which a non-interactive ssh shell does *not* run.
 
 ## TCP access
@@ -76,7 +76,7 @@ loopback port is connectable by other users on the same node.
 Each command takes the run roots to scan as positional arguments,
 defaulting to the current directory:
 
-* `m3dash serve [ROOTS...]` — for remote access: serve on a unix socket
+* `m3dash socket [ROOTS...]` — for remote access: serve on a unix socket
   reached through your SSH forward (blocking). `--socket`,
   `--local-port`.
 * `m3dash open [ROOTS...]` — on this machine: serve on a loopback TCP
@@ -85,7 +85,7 @@ defaulting to the current directory:
 * `m3dash ls [ROOTS...] [--json]` — list discovered runs on the
   terminal.
 
-Roots are fixed for a server's life; restart `serve`/`open` to change
+Roots are fixed for a server's life; restart `socket`/`open` to change
 them.
 
 Clicking a run opens its per-run dashboard (see "How to use" above).
