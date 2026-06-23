@@ -136,10 +136,17 @@ class ManagerLogAnalyzer(BaseLogAnalyzer):
             match = _LOGPARSER.match(line)
             if match is None:
                 continue  # FIXME: notify user about this?
+            try:
+                timestamp = datetime.fromisoformat(match.group("datetime"))
+            except ValueError:
+                # A non-log line that happens to fit the column layout, e.g. a
+                # Python traceback ("Traceback (most recent call last):"); skip
+                # it rather than crash the whole scan on fromisoformat.
+                continue
             self._lines_parsed += 1
             if self.start_time is None:
-                self.start_time = datetime.fromisoformat(match.group("datetime"))
-            self.last_update_time = datetime.fromisoformat(match.group("datetime"))
+                self.start_time = timestamp
+            self.last_update_time = timestamp
 
             if match.group("component") == "muscle_manager":
                 # TODO: suppress any exceptions when parsing the message?

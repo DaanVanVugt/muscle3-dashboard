@@ -111,3 +111,20 @@ def test_padded_component_lines(tmp_path):
             "unknown": 0,
         },
     }
+
+
+def test_traceback_line_does_not_crash(tmp_path):
+    """A Python traceback in the log fits the column layout but isn't a real
+    log line; it must be skipped, not crash the scan on fromisoformat."""
+    log_file = tmp_path / "muscle3_manager.log"
+    log_file.write_text(
+        "muscle_manager 2026-06-11 00:30:31,342 INFO    "
+        "libmuscle.manager: Started the simulation\n"
+        "Traceback (most recent call last):\n"
+        '  File "x.py", line 1, in <module>\n'
+        "ValueError: boom\n"
+    )
+    mla = ManagerLogAnalyzer(log_file, [])  # must not raise
+    assert mla.lines_read == 4
+    assert mla.lines_parsed == 1  # only the real log line counts
+    assert mla.messages_per_level["INFO"] == 1
