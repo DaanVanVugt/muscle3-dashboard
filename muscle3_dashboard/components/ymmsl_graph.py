@@ -405,9 +405,7 @@ class YmmslGraphViewer(pn.viewable.Viewer):
             base_name(name)
             for name in self.data_manager.manager_log_analyzer.components
         }
-        names.update(
-            base_name(name) for name in self.data_manager.stdout_log_analyzers
-        )
+        names.update(base_name(name) for name in self.data_manager.stdout_log_analyzers)
         return sorted(names)
 
     def _show_message(self, text: str) -> None:
