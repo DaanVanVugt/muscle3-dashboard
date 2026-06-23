@@ -19,13 +19,16 @@ and is reached through an SSH forward, e.g. in ``~/.ssh/config``::
 import html
 import logging
 import os
+import socket
 import threading
 import time
 import urllib.parse
+import webbrowser
 from datetime import datetime
 from pathlib import Path
 
 import panel as pn
+from tornado.netutil import bind_unix_socket
 
 from muscle3_dashboard.m3dash.discovery import (
     MANAGER_LOG,
@@ -37,7 +40,6 @@ from muscle3_dashboard.panel_util import add_session_periodic_callback
 
 logger = logging.getLogger(__name__)
 
-ROOTS_FILE = Path("~/.config/m3dash/roots").expanduser()
 # Incremental discovery (cached dir listings + log status, parallel stat) makes
 # rescans cheap after the first, so they can run often.
 RESCAN_INTERVAL_SECONDS = 5
@@ -47,26 +49,11 @@ VIEW_REFRESH_MILLISECONDS = 5000
 _EPOCH = datetime.fromtimestamp(0)
 
 
-def load_roots() -> list[Path]:
-    """Load run roots from the config file, defaulting to the home dir.
-
-    The file is the single place roots are configured: one path per
-    line; the scanner re-reads it on every rescan, so edits apply
-    without a restart.
-    """
-    try:
-        lines = ROOTS_FILE.read_text().splitlines()
-        roots = [Path(li).expanduser() for li in lines if li.strip()]
-    except OSError:
-        roots = []
-    return roots or [Path.home()]
-
-
 class RunIndex:
     """Shared, periodically refreshed cache of discovered runs."""
 
-    def __init__(self) -> None:
-        self.roots: list[Path] = load_roots()
+    def __init__(self, roots: list[Path]) -> None:
+        self.roots = roots
         self.runs: list[Run] = []
         self.last_scan: datetime | None = None
         self.scan_seconds: float | None = None
@@ -83,10 +70,8 @@ class RunIndex:
         while True:
             started = time.monotonic()
             try:
-                roots = load_roots()
-                runs = discover_runs(roots)
+                runs = discover_runs(self.roots)
                 with self._lock:
-                    self.roots = roots
                     self.runs = runs
             except Exception:
                 logger.exception("Run discovery failed")
@@ -227,7 +212,7 @@ def _scan_summary_html(index: RunIndex) -> str:
     else:
         when = "first scan pending"
     roots = ", ".join(f"<code>{html.escape(str(r))}</code>" for r in index.roots)
-    tip = html.escape(f"edit {ROOTS_FILE} (one path per line) and it applies next scan")
+    tip = html.escape("run roots given on the command line; restart to change")
     return f'<span style="opacity:0.7" title="{tip}">{when} · roots: {roots}</span>'
 
 
@@ -276,18 +261,34 @@ def run_app():
     return Dashboard(run_dir.resolve())
 
 
+def _socket_alive(socket_path: Path) -> bool:
+    """True if something is already accepting connections on the socket."""
+    if not socket_path.exists():
+        return False
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+        try:
+            probe.connect(str(socket_path))
+            return True
+        except OSError:
+            return False
+
+
 def _claim_socket(socket_path: Path) -> None:
     """Remove a stale socket, or fail if a live server owns it."""
-    from muscle3_dashboard.m3dash.cli import _socket_alive
-
     if _socket_alive(socket_path):
         raise RuntimeError(f"m3dash is already serving on {socket_path}")
     socket_path.unlink(missing_ok=True)
 
 
+def _origins(port: int) -> list[str]:
+    """Allowed websocket origins for a port reached over loopback."""
+    return [f"localhost:{port}", f"127.0.0.1:{port}"]
+
+
 def serve(
     socket_path: Path | None,
-    websocket_origins: list[str],
+    roots: list[Path],
+    local_port: int | None = None,
     tcp_port: int | None = None,
     open_browser: bool = False,
 ) -> None:
@@ -295,20 +296,21 @@ def serve(
 
     Args:
         socket_path: Unix socket to serve on (mode 0600), or None.
-        websocket_origins: Allowed websocket origins, e.g. localhost:4333
-            for the conventional SSH LocalForward.
+        roots: Run roots scanned for runs (fixed for the server's life).
+        local_port: Port the SSH forward uses; allows its websocket origin
+            and is logged as the URL the socket is reachable at. Socket-only.
         tcp_port: Optional loopback TCP port to also serve on (its
-            origins are added automatically).
+            origin is allowed automatically).
         open_browser: Open a browser at the TCP URL once serving (for a
             desktop session running on the node itself). Needs tcp_port.
     """
     global _index
-    _index = RunIndex()
+    _index = RunIndex(roots)
     _index.start()
 
-    origins = list(websocket_origins)
-    if tcp_port:
-        origins += [f"localhost:{tcp_port}", f"127.0.0.1:{tcp_port}"]
+    origins = (_origins(local_port) if socket_path and local_port else []) + (
+        _origins(tcp_port) if tcp_port else []
+    )
     server = pn.serve(
         {"/": index_app, "/run": run_app},
         address="127.0.0.1",
@@ -319,17 +321,18 @@ def serve(
         threaded=False,
     )
     if socket_path is not None:
-        from tornado.netutil import bind_unix_socket
-
         _claim_socket(socket_path)
         socket_path.parent.mkdir(parents=True, exist_ok=True)
         server._http.add_sockets([bind_unix_socket(str(socket_path), mode=0o600)])
         logger.info("Serving on unix socket %s", socket_path)
+        if local_port:
+            logger.info(
+                "→ reachable at http://localhost:%d/ (via your SSH LocalForward)",
+                local_port,
+            )
     if tcp_port:
         logger.info("Serving at http://localhost:%d/", tcp_port)
     if open_browser and tcp_port:
-        import webbrowser
-
         url = f"http://localhost:{tcp_port}/"
         server.io_loop.add_callback(lambda: webbrowser.open(url))
     try:

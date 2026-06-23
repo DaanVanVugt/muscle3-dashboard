@@ -27,10 +27,10 @@ Copyright 2026 ITER Organization. The code in this repository is licensed under 
 # m3dash: all your runs behind one SSH forward
 
 `m3dash` finds your MUSCLE3 runs (via SLURM, local `muscle_manager`
-processes, and a filesystem scan of configurable run roots, default
-`$HOME`) and serves a landing page that lists them plus a per-run
-dashboard for each, on a single per-user unix socket: `~/.m3dash.sock`
-(mode 0600).
+processes, and a filesystem scan of the run roots you give it, default
+the current directory) and serves a landing page that lists them plus a
+per-run dashboard for each, on a single per-user unix socket:
+`~/.m3dash.sock` (mode 0600).
 
 On your own machine, add to `~/.ssh/config`. The `%r` token expands to
 the remote username, so the same line works for every user (ITER SDCC
@@ -51,7 +51,7 @@ shared filesystem, so sshd and m3dash must be on the same machine.
 
 ```bash
 module load IMAS-MUSCLE3        # whatever puts m3dash on PATH
-m3dash serve
+m3dash serve ~/runs ~/pds       # roots to scan; default: current dir
 ```
 
 `m3dash serve` runs in the foreground. Note that `m3dash` often lives
@@ -73,14 +73,19 @@ loopback port is connectable by other users on the same node.
 
 ## Commands
 
-* `m3dash serve` — run the server on a unix socket (blocking).
-  `--socket`, `--local-port`.
-* `m3dash open` — serve on a loopback TCP port and open a browser
-  (blocking). `--port`, `--open-browser`/`--no-open-browser`.
-* `m3dash ls [--json]` — list discovered runs on the terminal.
+Each command takes the run roots to scan as positional arguments,
+defaulting to the current directory:
 
-Run roots are configured in `~/.config/m3dash/roots` (one path per
-line, default `$HOME`); the server re-reads it on every rescan, so
-edits apply without a restart.
+* `m3dash serve [ROOTS...]` — for remote access: serve on a unix socket
+  reached through your SSH forward (blocking). `--socket`,
+  `--local-port`.
+* `m3dash open [ROOTS...]` — on this machine: serve on a loopback TCP
+  port and open a browser (blocking). `--port`,
+  `--open-browser`/`--no-open-browser`.
+* `m3dash ls [ROOTS...] [--json]` — list discovered runs on the
+  terminal.
+
+Roots are fixed for a server's life; restart `serve`/`open` to change
+them.
 
 Clicking a run opens its per-run dashboard (see "How to use" above).

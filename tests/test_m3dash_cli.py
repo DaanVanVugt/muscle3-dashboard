@@ -22,10 +22,20 @@ def test_ls_json(assets_path, monkeypatch):
     # Isolate from the real cluster.
     monkeypatch.setattr(discovery, "scan_slurm_jobs", lambda: [])
     monkeypatch.setattr(discovery, "scan_processes", lambda: [])
-    result = CliRunner().invoke(cli.main, ["ls", "--json", "--root", str(assets_path)])
+    result = CliRunner().invoke(cli.main, ["ls", "--json", str(assets_path)])
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
     names = {r["name"] for r in data}
+    assert {"run-accumulator", "run-chease"} <= names
+
+
+def test_ls_defaults_to_cwd(assets_path, monkeypatch):
+    monkeypatch.setattr(discovery, "scan_slurm_jobs", lambda: [])
+    monkeypatch.setattr(discovery, "scan_processes", lambda: [])
+    monkeypatch.chdir(assets_path)
+    result = CliRunner().invoke(cli.main, ["ls", "--json"])
+    assert result.exit_code == 0, result.output
+    names = {r["name"] for r in json.loads(result.output)}
     assert {"run-accumulator", "run-chease"} <= names
 
 

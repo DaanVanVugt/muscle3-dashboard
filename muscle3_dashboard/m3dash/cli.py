@@ -11,10 +11,11 @@ Reach it from your machine with an SSH LocalForward to the unix socket, e.g.::
 
 import logging
 import os
-import socket
 from pathlib import Path
 
 import click
+
+from muscle3_dashboard.m3dash.discovery import discover_runs, runs_to_json
 
 # In the home dir so that one ssh_config line works for every user:
 #   LocalForward 127.0.0.1:4333 /home/ITER/%r/.m3dash.sock
@@ -36,22 +37,23 @@ def default_tcp_port() -> int:
 
 DEFAULT_LOCAL_PORT = 4333
 
+#: Positional run roots, shared by every command. Empty means "scan the
+#: current directory", so ``m3dash ls`` in a run tree just works.
+roots_argument = click.argument(
+    "roots",
+    nargs=-1,
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+)
+
+
+def _resolve_roots(roots: tuple[Path, ...]) -> list[Path]:
+    return [r.expanduser() for r in roots] or [Path.cwd()]
+
 
 def _setup_logging() -> None:
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
     )
-
-
-def _socket_alive(socket_path: Path) -> bool:
-    if not socket_path.exists():
-        return False
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
-        try:
-            probe.connect(str(socket_path))
-            return True
-        except OSError:
-            return False
 
 
 @click.group()
@@ -60,6 +62,7 @@ def main() -> None:
 
 
 @main.command()
+@roots_argument
 @click.option(
     "--socket",
     "socket_path",
@@ -75,22 +78,22 @@ def main() -> None:
     help="Local port the SSH forward uses; sets the allowed websocket "
     "origin (localhost:<port>).",
 )
-def serve(socket_path: Path, local_port: int) -> None:
-    """Run the m3dash server on a unix socket (blocking).
+def serve(roots: tuple[Path, ...], socket_path: Path, local_port: int) -> None:
+    """For remote access: serve on a unix socket via your SSH forward (blocking).
 
     Reached through an SSH LocalForward to the socket (see the module
-    docstring). Run roots for filesystem discovery are read from
-    ~/.config/m3dash/roots (one path per line, default $HOME); edits are
-    picked up at the next rescan, no restart needed.
+    docstring). ROOTS are the directories scanned for runs (default: the
+    current directory); they are fixed for the server's life, so restart
+    to change them.
     """
     _setup_logging()
     from muscle3_dashboard.m3dash import app
 
-    origins = [f"localhost:{local_port}", f"127.0.0.1:{local_port}"]
-    app.serve(socket_path, origins)
+    app.serve(socket_path, _resolve_roots(roots), local_port=local_port)
 
 
 @main.command("open")
+@roots_argument
 @click.option(
     "--port",
     "tcp_port",
@@ -105,38 +108,37 @@ def serve(socket_path: Path, local_port: int) -> None:
     show_default=True,
     help="Open a browser at the URL once serving.",
 )
-def open_(tcp_port: int | None, open_browser: bool) -> None:
-    """Serve on a loopback TCP port and open a browser (blocking).
+def open_(roots: tuple[Path, ...], tcp_port: int | None, open_browser: bool) -> None:
+    """On this machine: serve on a local port and open a browser (blocking).
 
     For a desktop session running on the node itself (e.g. NoMachine),
     where no SSH socket forward is involved. A loopback TCP port is also
     the fallback where sshd forbids unix-socket forwarding: run
     ``m3dash open --no-open-browser`` and forward the port with a plain
-    ``LocalForward 127.0.0.1:<port> 127.0.0.1:<port>``.
+    ``LocalForward 127.0.0.1:<port> 127.0.0.1:<port>``. ROOTS are the
+    directories scanned for runs (default: the current directory).
     """
     _setup_logging()
     from muscle3_dashboard.m3dash import app
 
     app.serve(
-        None, [], tcp_port=tcp_port or default_tcp_port(), open_browser=open_browser
+        None,
+        _resolve_roots(roots),
+        tcp_port=tcp_port or default_tcp_port(),
+        open_browser=open_browser,
     )
 
 
 @main.command("ls")
+@roots_argument
 @click.option("--json", "as_json", is_flag=True, help="Output JSON.")
-@click.option(
-    "--root",
-    "roots",
-    type=click.Path(exists=True, file_okay=False, path_type=Path),
-    multiple=True,
-    help="Run root to scan (repeatable); defaults to configured roots.",
-)
-def ls(as_json: bool, roots: tuple[Path, ...]) -> None:
-    """List discovered MUSCLE3 runs."""
-    from muscle3_dashboard.m3dash.app import load_roots
-    from muscle3_dashboard.m3dash.discovery import discover_runs, runs_to_json
+def ls(roots: tuple[Path, ...], as_json: bool) -> None:
+    """List discovered MUSCLE3 runs.
 
-    runs = discover_runs([r.expanduser() for r in roots] or load_roots())
+    ROOTS are the directories scanned for runs (default: the current
+    directory).
+    """
+    runs = discover_runs(_resolve_roots(roots))
     if as_json:
         click.echo(runs_to_json(runs))
         return
