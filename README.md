@@ -101,11 +101,14 @@ them.
 
 Clicking a run opens its dashboard, a single page top to bottom:
 
+* a **crash banner** (only on failure) naming the likely-responsible
+  component(s) and any collateral crashes;
 * a **simulation graph** of the coupling (from `configuration.ymmsl` via
-  the optional `graph` extra), with components coloured by status
-  (running / finished / crashed) and the likely-responsible component on
-  a crash outlined and its log opened automatically; click any component
-  to inspect it;
+  the optional `graph` extra), with a colour legend and components coloured
+  by status (running / finished / crashed) and the likely-responsible
+  component on a crash outlined and its log opened automatically; click any
+  component to inspect it (without the `graph` extra a dropdown lists the
+  components instead);
 * a **component summary** for the clicked component — a port block plus
   its program, settings and description, with referenced text files as
   inline links that open in a read-only viewer (with copy-path and

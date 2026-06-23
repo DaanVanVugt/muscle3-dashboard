@@ -1,9 +1,28 @@
+import logging
 from pathlib import Path
 
 import param
 
 from muscle3_dashboard.loganalyzer.base import BaseLogAnalyzer
 from muscle3_dashboard.loganalyzer.manager import ManagerLogAnalyzer
+
+logger = logging.getLogger(__name__)
+
+try:
+    import ymmsl
+    from ymmsl.v0_2 import Configuration
+except ImportError:  # optional "graph" extra not installed
+    ymmsl = None
+
+
+def _instance_names(base: str, multiplicity: list[int]) -> list[str]:
+    """Expand a component's multiplicity into the instance names the manager log
+    uses (``worker`` with multiplicity ``[]`` -> ``["worker"]``; ``[2]`` ->
+    ``["worker[0]", "worker[1]"]``; ``[2, 3]`` nests both dimensions)."""
+    names = [base]
+    for dim in multiplicity:
+        names = [f"{name}[{i}]" for name in names for i in range(dim)]
+    return names
 
 
 class DataManager(param.Parameterized):
@@ -23,7 +42,7 @@ class DataManager(param.Parameterized):
         self.run_folder = run_folder
         # TODO: setup notifications / poll until file exists?
         logfile = run_folder / "muscle3_manager.log"
-        components = []  # TODO: get components from configuration.ymmsl
+        components = self._components_from_config(run_folder)
         self.manager_log_analyzer = ManagerLogAnalyzer(logfile, components)
         self.stdout_log_analyzers = {}
         self.stderr_log_analyzers = {}
@@ -31,6 +50,30 @@ class DataManager(param.Parameterized):
         self.manager_log_lines: list[str] = []
         self.stdout_log_lines: dict[str, list[str]] = {}
         self.stderr_log_lines: dict[str, list[str]] = {}
+
+    def _components_from_config(self, run_folder: Path) -> list[str]:
+        """Component instance names declared in the run's ``configuration.ymmsl``.
+
+        Knowing them up front lets the graph and status views show every
+        component (coloured "not started") before the manager log first mentions
+        it. Returns an empty list when the optional ``ymmsl`` dependency or the
+        config file is missing; the manager log then discovers components as it
+        is parsed.
+        """
+        config = run_folder / "configuration.ymmsl"
+        if ymmsl is None or not config.is_file():
+            return []
+        try:
+            cfg = ymmsl.load_as(Configuration, config)
+            names: list[str] = []
+            for component in cfg.root_model().components.values():
+                names.extend(
+                    _instance_names(str(component.name), list(component.multiplicity))
+                )
+            return names
+        except Exception as e:
+            logger.warning("Could not read components from %s: %s", config, e)
+            return []
 
     def _setup_component_logs(self, run_folder: Path) -> None:
         """Locate per-component logs under ``instances/<component>/``.

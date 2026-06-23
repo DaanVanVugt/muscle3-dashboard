@@ -7,7 +7,8 @@ from pathlib import Path
 import panel as pn
 
 from muscle3_dashboard.components.component_summary import ComponentSummaryViewer
-from muscle3_dashboard.components.log_files import MANAGER, LogFilesViewer
+from muscle3_dashboard.components.crash_analysis import CrashAnalysisViewer
+from muscle3_dashboard.components.log_files import LogFilesViewer
 from muscle3_dashboard.components.profiling_information import (
     ProfilingInformationViewer,
 )
@@ -66,8 +67,8 @@ class Dashboard(pn.viewable.Viewer):
         self.ymmsl_graph_viewer = YmmslGraphViewer(
             self.data_manager,
             on_select=self._show_logs_for,
-            on_manager=self._show_manager_log,
         )
+        self.crash_analysis_viewer = CrashAnalysisViewer(self.data_manager)
         self.component_summary_viewer = ComponentSummaryViewer(self.data_manager)
         self.log_files_viewer = LogFilesViewer(self.data_manager)
         self.profiling_information_viewer = ProfilingInformationViewer(
@@ -86,11 +87,12 @@ class Dashboard(pn.viewable.Viewer):
         self._auto_opened = False
         self.data_manager.param.watch(self._auto_open_crash, "data_updated")
 
-        # Single page, top to bottom: the simulation graph (components coloured
-        # by status, click one for its summary + logs), the clicked component's
-        # summary, then the log files.
+        # Single page, top to bottom: a crash banner (only on failure), the
+        # simulation graph (components coloured by status, click one for its
+        # summary + logs), the clicked component's summary, then the log files.
         self.template.main.append(
             pn.Column(
+                self.crash_analysis_viewer,
                 self.ymmsl_graph_viewer,
                 self.component_summary_viewer,
                 self.log_files_viewer,
@@ -169,10 +171,6 @@ class Dashboard(pn.viewable.Viewer):
         """Show the clicked component's summary and its log."""
         self.component_summary_viewer.show(source)
         self.log_files_viewer.show_source(source)
-
-    def _show_manager_log(self) -> None:
-        """Show the muscle_manager log (it has no box in the graph)."""
-        self.log_files_viewer.show_source(MANAGER)
 
     def session_created(self) -> None:
         """Poll the logs once the session has loaded."""

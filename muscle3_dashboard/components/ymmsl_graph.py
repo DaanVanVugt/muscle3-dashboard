@@ -1,7 +1,6 @@
 import html
 import logging
 import time
-import urllib.parse
 from collections.abc import Callable
 
 import panel as pn
@@ -11,8 +10,17 @@ from muscle3_dashboard.constants import CARD_MARGIN
 from muscle3_dashboard.data_manager import DataManager
 from muscle3_dashboard.instances import base_name
 from muscle3_dashboard.loganalyzer.manager import ComponentStatus
+from muscle3_dashboard.reactive import encode_markup
 
 logger = logging.getLogger(__name__)
+
+#: MUSCLE3 docs section ("Designing the connections") with the gMMSL diagram
+#: explaining how conduits connect the port operators (F_INIT / O_I / S / O_F)
+#: across time scales — the annotations whose mismatch makes ymmsl2svg's strict
+#: timeline check fail.
+_TIMELINE_DOCS_URL = (
+    "https://muscle3.readthedocs.io/en/latest/tutorial.html#designing-the-connections"
+)
 
 # Component box fill per status bucket. The same colour is drawn fully opaque for
 # an active component (wrote log output since the last render) and dimmed to
@@ -49,6 +57,43 @@ _BUCKET_PRIORITY = {
     "not_started": 1,
     "finished": 0,
 }
+# Legend, in the order shown. Label per status bucket for the colour key.
+_STATUS_LABEL = {
+    "not_started": "not started",
+    "running": "running",
+    "finished": "finished",
+    "killed": "killed (collateral)",
+    "crashed": "crashed (likely cause)",
+}
+
+
+def _legend_html() -> str:
+    """A compact colour key for the status fills, outlines, and opacity, so a
+    reader can map a box's colour to a component state and spot crash suspects."""
+    swatches = []
+    for bucket, label in _STATUS_LABEL.items():
+        stroke = _CRASH_STROKE.get(bucket)
+        border = (
+            f"border:{min(stroke[1], 2)}px solid {stroke[0]}"
+            if stroke
+            else "border:1px solid #bbb"
+        )
+        swatches.append(
+            '<span style="display:inline-flex;align-items:center;gap:4px;'
+            'margin-right:10px;white-space:nowrap">'
+            f'<span style="width:14px;height:14px;border-radius:2px;'
+            f'background:{_STATUS_FILL[bucket]};{border}"></span>{label}</span>'
+        )
+    swatches.append(
+        '<span style="white-space:nowrap;opacity:0.8">'
+        "solid = active (recent log output), faded = idle</span>"
+    )
+    return (
+        '<div style="display:flex;flex-wrap:wrap;align-items:center;'
+        'font-size:0.78em;opacity:0.85;margin:2px 4px 0">'
+        + "".join(swatches)
+        + "</div>"
+    )
 
 
 try:
@@ -124,56 +169,57 @@ class YmmslGraphViewer(pn.viewable.Viewer):
 
     Visualization needs the optional ``ymmsl2svg`` dependency
     (``pip install muscle3-dashboard[graph]``); without it, a missing config,
-    or an unvisualizable model, a short message is shown instead. Component
-    boxes are coloured by status (crashed also outlined); clicking a component
-    invokes ``on_select`` with its name (used to show that component's logs).
-    The muscle_manager has no box in the graph, so a small button in the card
-    header invokes ``on_manager`` to show its log.
+    or an unvisualizable model, a short message and a component dropdown are
+    shown instead. Component boxes are coloured by status (crashed also
+    outlined); clicking a component (or picking it from the dropdown) invokes
+    ``on_select`` with its name to show that component's logs. ymmsl2svg is
+    called at most once per run -- the diagram is static, so later ticks only
+    re-colour the cached SVG rather than re-rendering it.
     """
 
     def __init__(
         self,
         data_manager: DataManager,
         on_select: Callable[[str], None] | None = None,
-        on_manager: Callable[[], None] | None = None,
     ) -> None:
         super().__init__()
         self.data_manager = data_manager
         self.on_select = on_select
-        self.on_manager = on_manager
         self._base_svg: str | None = None  # rendered graph, before styling
         self._rendered = False
+        # ymmsl2svg has been called for good (drawn, or definitively failed) and
+        # must not be retried each tick; the config is static once present.
+        self._svg_done = False
         self._styled: dict[str, tuple[str, float]] = {}  # name -> (status, opacity)
         # base name -> monotonic time of its last log write, for the activity glow.
         self._last_write: dict[str, float] = {}
 
         self.graph = _ClickableSVG()
         self.graph.param.watch(self._on_click, "component")
-        # The manager isn't a component box; surface its log with a small box in
-        # the card header.
-        self.manager_button = pn.widgets.Button(
-            name="muscle_manager log",
-            button_type="default",
-            height=24,
-            width=140,
-            margin=(0, 4),
-            stylesheets=[".bk-btn { font-size: 0.7em; padding: 1px 6px; }"],
-        )
-        self.manager_button.on_click(self._on_manager_click)
         # Small, click-to-expand "approximate layout" warning (<details>).
         self.note = pn.pane.HTML(visible=False, sizing_mode="stretch_width")
+        # Colour key for the status fills; shown only alongside the graph.
+        self.legend = pn.pane.HTML(
+            _legend_html(), visible=False, sizing_mode="stretch_width"
+        )
         self.message = pn.pane.Markdown(visible=False)  # error / no-graph text
+        # Fallback when there is no graph: a dropdown so every component's log is
+        # still reachable (the manager log has its own button on the log card).
+        self.fallback_select = pn.widgets.Select(
+            name="Show a component log",
+            options=[],
+            visible=False,
+            width=260,
+            margin=(4, 4),
+        )
+        self.fallback_select.param.watch(self._on_fallback_select, "value")
         self.card = pn.Card(
             self.note,
             self.graph,
+            self.legend,
             self.message,
-            header=pn.Row(
-                pn.pane.HTML("<b>Simulation graph</b>"),
-                pn.HSpacer(),
-                self.manager_button,
-                align="center",
-                sizing_mode="stretch_width",
-            ),
+            self.fallback_select,
+            title="Simulation graph",
             sizing_mode="stretch_width",
             margin=CARD_MARGIN,
         )
@@ -183,6 +229,8 @@ class YmmslGraphViewer(pn.viewable.Viewer):
     def render(self) -> None:
         """Render configuration.ymmsl into the graph, with fallbacks."""
         if ymmsl2svg is None:
+            # A missing dependency won't change while we run: settle for good.
+            self._svg_done = True
             self._show_message(
                 "Install the optional `ymmsl2svg` dependency to see the "
                 "simulation graph: `pip install muscle3-dashboard[graph]`."
@@ -191,9 +239,13 @@ class YmmslGraphViewer(pn.viewable.Viewer):
 
         config = self.data_manager.run_folder / "configuration.ymmsl"
         if not config.is_file():
+            # The config may yet be written; keep polling (cheaply) for it.
             self._show_message(f"No `configuration.ymmsl` in `{config.parent}`.")
             return
 
+        # From here the config exists and is static, so whatever ymmsl2svg makes
+        # of it is final: draw (or fail) once and never call it again.
+        self._svg_done = True
         ymmsl2svg_settings.debug = False
         note_html = ""
         try:
@@ -218,6 +270,8 @@ class YmmslGraphViewer(pn.viewable.Viewer):
         self._base_svg = str(svg)
         self._rendered = True
         self.graph.visible = True
+        self.legend.visible = True
+        self.fallback_select.visible = False
         self.message.visible = False
         self.note.object = note_html
         self.note.visible = bool(note_html)
@@ -225,14 +279,20 @@ class YmmslGraphViewer(pn.viewable.Viewer):
 
     @staticmethod
     def _approximate_note(error: Exception) -> str:
-        """Small, click-to-expand notice carrying the full strict error."""
+        """Small, click-to-expand notice carrying the full strict error, with a
+        link to the docs explaining the timeline/operator annotations."""
         details = html.escape(str(error))
         return (
             '<details style="font-size:0.8em;opacity:0.8;margin:2px 4px">'
             '<summary style="cursor:pointer">&#9888; Timelines could not be '
             "verified — layout is approximate (click for details)</summary>"
             '<pre style="white-space:pre-wrap;font-size:0.95em;margin:4px 0">'
-            f"{details}</pre></details>"
+            f"{details}</pre>"
+            '<div style="font-size:0.95em">See the MUSCLE3 docs on '
+            f'<a href="{_TIMELINE_DOCS_URL}" target="_blank" rel="noopener">'
+            "designing the connections</a> (the F_INIT / O_I / S / O_F operators "
+            "and conduits) for how component timelines are derived and annotated."
+            "</div></details>"
         )
 
     def _bucket(self, component) -> str:
@@ -319,7 +379,7 @@ class YmmslGraphViewer(pn.viewable.Viewer):
                 rule += f";stroke:{stroke[0]};stroke-width:{stroke[1]}"
             css += rule + "}"
         styled = self._base_svg.replace("</svg>", f"<style>{css}</style></svg>", 1)
-        self.graph.svg_enc = urllib.parse.quote(styled)
+        self.graph.svg_enc = encode_markup(styled)
         self._styled = styles
 
     def _on_click(self, event) -> None:
@@ -331,25 +391,64 @@ class YmmslGraphViewer(pn.viewable.Viewer):
         if self.on_select is not None:
             self.on_select(component)
 
-    def _on_manager_click(self, event) -> None:
-        if self.on_manager is not None:
-            self.on_manager()
+    def _on_fallback_select(self, event) -> None:
+        component = event.new
+        # Reset so re-selecting the same component fires again.
+        self.fallback_select.value = None
+        if component and self.on_select is not None:
+            self.on_select(component)
+
+    def _selectable_components(self) -> list[str]:
+        """Base component names known from the manager log or the instance log
+        dirs — the set whose logs are reachable without a graph."""
+        names = {
+            base_name(name)
+            for name in self.data_manager.manager_log_analyzer.components
+        }
+        names.update(
+            base_name(name) for name in self.data_manager.stdout_log_analyzers
+        )
+        return sorted(names)
 
     def _show_message(self, text: str) -> None:
+        """Show ``text`` instead of the graph, plus a dropdown of components so
+        their logs stay reachable (the manager log has its own button on the
+        log card)."""
         self.graph.visible = False
+        self.legend.visible = False
         self.note.visible = False
         self.message.object = text
         self.message.visible = True
+        self._populate_fallback()
+
+    def _populate_fallback(self) -> None:
+        """Refresh the no-graph component dropdown from the components known so
+        far; cheap, so it can run each tick while components are discovered."""
+        components = self._selectable_components()
+        # Keep None as the placeholder value so the watcher only fires on a real
+        # pick; options is a dict so the visible label is the component name.
+        options = {"— select —": None}
+        options.update({c: c for c in components})
+        if list(self.fallback_select.options) == list(options):
+            return  # unchanged; avoid resetting the user's open dropdown
+        self.fallback_select.options = options
+        self.fallback_select.value = None
+        self.fallback_select.visible = bool(components)
 
     def update(self, event) -> None:
-        if not self._rendered:
-            self.render()
+        if not self._svg_done:
+            self.render()  # draws the graph or shows the message + dropdown
             return
-        # The configuration is static, but statuses and recent activity evolve;
-        # sample once per tick and restyle when the styling changes.
-        styles = self._component_styles()
-        if styles != self._styled:
-            self._apply_styling(styles)
+        if self._rendered:
+            # The diagram is static; only statuses / recent activity evolve, so
+            # re-colour the cached SVG when the sampled styling changes.
+            styles = self._component_styles()
+            if styles != self._styled:
+                self._apply_styling(styles)
+        else:
+            # No graph and we won't retry ymmsl2svg; keep the dropdown current
+            # as components appear in the log.
+            self._populate_fallback()
 
     def __panel__(self):
         return self.card

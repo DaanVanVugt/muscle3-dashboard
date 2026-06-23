@@ -47,6 +47,17 @@ class LogFilesViewer(pn.viewable.Viewer):
             width=160,
         )
         self.stream_toggle.param.watch(self._show_current, "value")
+        # The muscle_manager has no component box in the graph, so its log is
+        # reached from this button. It's an action ("show the manager log"), so
+        # it's de-emphasised (light) while that log is already shown.
+        self.manager_button = pn.widgets.Button(
+            name="muscle_manager log",
+            button_type="default",
+            width=150,
+            margin=(5, 12),
+            align="center",
+        )
+        self.manager_button.on_click(lambda event: self.show_source(MANAGER))
         self.title_pane = pn.pane.HTML("", align="center")
         self.container = pn.pane.Placeholder(
             self.manager_terminal, sizing_mode="stretch_width"
@@ -58,6 +69,7 @@ class LogFilesViewer(pn.viewable.Viewer):
             header=pn.Row(
                 self.title_pane,
                 pn.HSpacer(),
+                self.manager_button,
                 self.instance_slot,
                 self.stream_toggle,
                 sizing_mode="stretch_width",
@@ -106,14 +118,21 @@ class LogFilesViewer(pn.viewable.Viewer):
     def _show_current(self, *_events) -> None:
         """Point the container at the currently selected log"""
         path = None
+        # De-emphasise the button (light) while the manager log is already the
+        # one shown; offer it as a normal action (default) otherwise.
+        self.manager_button.button_type = (
+            "light" if self.source == MANAGER else "default"
+        )
         if self.source == MANAGER:
-            self.stream_toggle.disabled = True
+            # The manager log is a single stream: the stdout/stderr toggle is
+            # irrelevant, so hide it rather than show it disabled.
+            self.stream_toggle.visible = False
             self.instance_slot.visible = False
             shown = MANAGER
             pane = self.manager_terminal
             path = self.data_manager.manager_log_analyzer.path
         else:
-            self.stream_toggle.disabled = False
+            self.stream_toggle.visible = True
             instance = self._instance or self.source
             stream = self.stream_toggle.value
             shown = f"{instance} {stream}"

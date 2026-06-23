@@ -1,15 +1,14 @@
 import html
 import logging
 import re
-import urllib.parse
 from pathlib import Path
 
 import panel as pn
-import param
 
 from muscle3_dashboard.constants import CARD_MARGIN
 from muscle3_dashboard.data_manager import DataManager
 from muscle3_dashboard.pathlink import copy_link
+from muscle3_dashboard.reactive import ClickableHTML, CopyButton, encode_markup
 
 logger = logging.getLogger(__name__)
 
@@ -26,72 +25,6 @@ _MAX_FILE_BYTES = 512 * 1024
 _PATH_RE = re.compile(r"/[^\s'\"<>():,]+")
 
 
-def _encode(markup: str) -> str:
-    """Percent-encode markup so Panel's String sanitizer passes it through.
-
-    Panel HTML-sanitizes every ReactiveHTML string param, which would strip the
-    <svg>/data-path/<style> markup these components rely on. Percent-encoded text
-    has no HTML characters left, so it survives; the JS decodes it back with the
-    native ``decodeURIComponent``.
-    """
-    return urllib.parse.quote(markup)
-
-
-class _ClickableHTML(pn.reactive.ReactiveHTML):
-    """HTML that reports the data-path of a clicked element.
-
-    The HTML is percent-encoded (see _encode) so Panel's sanitizer leaves the
-    data-path attributes intact; clicking an element with a data-path sets
-    ``clicked`` to that path.
-    """
-
-    html_enc = param.String(default="")
-    clicked = param.String(default="")
-
-    _template = (
-        '<div id="content" onclick="${script(\'click\')}" style="width:100%"></div>'
-    )
-    _draw = "content.innerHTML = data.html_enc ? decodeURIComponent(data.html_enc) : ''"
-    _scripts = {
-        "render": _draw,
-        "html_enc": _draw,
-        "click": (
-            "const el = state.event.target.closest('[data-path]');"
-            "if (el) { data.clicked = el.getAttribute('data-path'); }"
-        ),
-    }
-
-
-class _CopyButton(pn.reactive.ReactiveHTML):
-    """A small button that copies arbitrary text to the clipboard, with a brief
-    "copied" confirmation.
-
-    The text is percent-encoded (see _encode) to survive Panel's string
-    sanitizer with newlines/quotes intact. navigator.clipboard needs a secure
-    context, which localhost (the SSH-forward / NoMachine access path) always is.
-    """
-
-    payload_enc = param.String(default="")
-    label = param.String(default="⧉ copy contents")
-
-    _template = (
-        '<button id="b" onclick="${script(\'copy\')}" '
-        'style="cursor:pointer;font-size:0.85em;padding:2px 8px;'
-        'border:1px solid #ccc;border-radius:4px;background:#fafafa">'
-        "{{ label }}</button>"
-    )
-    _scripts = {
-        "copy": (
-            "const t = data.payload_enc ? decodeURIComponent(data.payload_enc) : '';"
-            "navigator.clipboard.writeText(t).then(() => {"
-            "  const o = data.label;"
-            "  b.textContent = '\\u2713 copied';"
-            "  setTimeout(() => { b.textContent = o; }, 1200);"
-            "});"
-        ),
-    }
-
-
 class ComponentSummaryViewer(pn.viewable.Viewer):
     """Show a clicked component: its program / settings / description (with
     referenced text files as inline links), and a read-only viewer that opens a
@@ -105,8 +38,10 @@ class ComponentSummaryViewer(pn.viewable.Viewer):
         self._loaded = False
         self._text_files: set[str] = set()
 
-        self.details = _ClickableHTML(
-            html_enc=_encode("<i>Click a component in the graph for details.</i>"),
+        self.details = ClickableHTML(
+            html_enc=encode_markup(
+                "<i>Click a component in the graph for details.</i>"
+            ),
             sizing_mode="stretch_width",
         )
         self.details.param.watch(self._on_path_click, "clicked")
@@ -120,7 +55,7 @@ class ComponentSummaryViewer(pn.viewable.Viewer):
         # Header above the read-only viewer: the file path as a click-to-copy
         # link, a copy-contents button, and a close button.
         self.editor_path = pn.pane.HTML("", visible=False, align="center")
-        self.editor_copy = _CopyButton(visible=False, align="center")
+        self.editor_copy = CopyButton(visible=False, align="center")
         self.editor_close = pn.widgets.Button(
             name="✕ close",
             button_type="light",
@@ -166,7 +101,7 @@ class ComponentSummaryViewer(pn.viewable.Viewer):
             )
         self._close_editor()
         if comp is None:
-            self.details.html_enc = _encode(
+            self.details.html_enc = encode_markup(
                 f"<b>{html.escape(component_name)}</b><br>"
                 "<i>Not in the configuration.</i>"
             )
@@ -174,7 +109,7 @@ class ComponentSummaryViewer(pn.viewable.Viewer):
 
         program = cfg.programs.get(comp.implementation)
         self._text_files = set(_detect_files(comp, program, cfg, component_name))
-        self.details.html_enc = _encode(
+        self.details.html_enc = encode_markup(
             _details_html(comp, program, cfg, component_name, self._text_files)
         )
 
@@ -202,7 +137,7 @@ class ComponentSummaryViewer(pn.viewable.Viewer):
         self.editor_path.object = "<b>File:</b> " + copy_link(
             Path(path).name, Path(path)
         )
-        self.editor_copy.payload_enc = _encode(text)
+        self.editor_copy.payload_enc = encode_markup(text)
         for widget in self._editor_widgets():
             widget.visible = True
 
