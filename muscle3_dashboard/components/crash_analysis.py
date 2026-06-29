@@ -1,5 +1,3 @@
-from collections import defaultdict
-
 import panel as pn
 
 from muscle3_dashboard.constants import CARD_MARGIN
@@ -7,61 +5,56 @@ from muscle3_dashboard.data_manager import DataManager
 
 
 class CrashAnalysisViewer(pn.viewable.Viewer):
-    """Panel component showing the most likely components responsible for a
-    simulation crash"""
+    """A compact crash banner naming the components likely responsible.
+
+    The graph colours crash suspects too, but that is easy to miss; this is the
+    one always-visible-on-failure summary. It uses the same structured
+    classifier as the graph (``Component.crash_kind``), so the named culprit and
+    the graph's red outline always agree:
+
+    * **likely cause** -- components with a real non-zero exit code; shown with
+      their exit-code message.
+    * **also stopped** -- collateral SIGKILL (-9) / generic crashes after
+      another component failed first; named only, to keep the banner short.
+
+    Hidden entirely when no crash is detected, so a healthy run shows nothing.
+    """
 
     def __init__(self, data_manager: DataManager) -> None:
         super().__init__()
-        self.components_exit_code_dict = {}
-        self.markdown = pn.pane.Markdown(self.markdown_str)
-        self.card = pn.Card(
-            self.markdown,
-            title="Crash analysis",
-            margin=CARD_MARGIN,
-            sizing_mode="stretch_width",
-        )
         self.data_manager = data_manager
+        self.alert = pn.pane.Alert(
+            "", alert_type="danger", margin=CARD_MARGIN, sizing_mode="stretch_width"
+        )
+        self.alert.visible = False
         self.data_manager.param.watch(self.update, "data_updated")
+        self.update(None)
 
-    def update(self, event):
-        """Method to update crash analysis viewer from listener"""
-        self.components_exit_code_dict = {
-            component.name: component.exit_code_message
-            for component in self.data_manager.manager_log_analyzer.components.values()
-        }
-        self.markdown.object = self.markdown_str
+    def update(self, event) -> None:
+        text = self._summary()
+        self.alert.visible = bool(text)
+        if text:
+            self.alert.object = text
 
-    @property
-    def markdown_str(self):
-        """Build string for markdown based on inner state"""
-        crashed_components = defaultdict(list)
-        for name, exit_code_message in self.components_exit_code_dict.items():
-            if exit_code_message and exit_code_message != "0":
-                crashed_components[exit_code_message].append(name)
-        if len(crashed_components):
-            new_str = (
-                "Crash detected. "
-                "We expect one of the following components "
-                "to be responsible.\n\n"
-            )
-            new_str += "\n".join(
-                [
-                    f"- {name} exited with {exit_code_message}"
-                    for exit_code_message, names in crashed_components.items()
-                    for name in names
-                    if "-9" not in exit_code_message
-                    and "crashed" not in exit_code_message
-                ]
-            )
-            if "crashed" in crashed_components:
-                new_str += "\n\nThe following components crashed, "
-                new_str += "likely because an error occurred elsewhere:\n\n"
-                new_str += "\n".join(
-                    [f"- {name}" for name in crashed_components["crashed"]]
-                )
-        else:
-            new_str = "No crash detected"
-        return new_str
+    def _summary(self) -> str:
+        """One-line-per-culprit Markdown, or "" when nothing crashed."""
+        culprits: list[str] = []
+        collateral: list[str] = []
+        components = self.data_manager.manager_log_analyzer.components
+        for name, component in components.items():
+            kind = component.crash_kind
+            if kind == "culprit":
+                culprits.append(f"`{name}` exited with {component.exit_code_message}")
+            elif kind == "killed":
+                collateral.append(f"`{name}`")
+        if not culprits and not collateral:
+            return ""
+        lines = ["**Crash detected.**"]
+        if culprits:
+            lines.append("Likely cause: " + "; ".join(culprits) + ".")
+        if collateral:
+            lines.append("Also stopped (collateral): " + ", ".join(collateral) + ".")
+        return "  \n".join(lines)
 
     def __panel__(self):
-        return self.card
+        return self.alert

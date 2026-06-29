@@ -1,6 +1,6 @@
 """m3dash command line interface.
 
-  ``m3dash serve``    run the server on a unix socket (for an SSH forward).
+  ``m3dash socket``   run the server on a unix socket (for an SSH forward).
   ``m3dash open``     serve on a loopback TCP port and open a browser.
   ``m3dash ls``       list discovered runs on the terminal.
 
@@ -61,7 +61,7 @@ def main() -> None:
     """Find MUSCLE3 runs and serve their dashboards over one endpoint."""
 
 
-@main.command()
+@main.command("socket")
 @roots_argument
 @click.option(
     "--socket",
@@ -78,7 +78,7 @@ def main() -> None:
     help="Local port the SSH forward uses; sets the allowed websocket "
     "origin (localhost:<port>).",
 )
-def serve(roots: tuple[Path, ...], socket_path: Path, local_port: int) -> None:
+def socket_cmd(roots: tuple[Path, ...], socket_path: Path, local_port: int) -> None:
     """For remote access: serve on a unix socket via your SSH forward (blocking).
 
     Reached through an SSH LocalForward to the socket (see the module
@@ -138,7 +138,14 @@ def ls(roots: tuple[Path, ...], as_json: bool) -> None:
     ROOTS are the directories scanned for runs (default: the current
     directory).
     """
-    runs = discover_runs(_resolve_roots(roots))
+    scan_roots = _resolve_roots(roots)
+    if not as_json:
+        # To stderr so it never pollutes the parseable run listing on stdout.
+        click.echo(
+            "Scanned roots: " + ", ".join(str(root) for root in scan_roots),
+            err=True,
+        )
+    runs = discover_runs(scan_roots)
     if as_json:
         click.echo(runs_to_json(runs))
         return

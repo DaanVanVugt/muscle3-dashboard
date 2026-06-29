@@ -180,8 +180,6 @@ def _runs_table_html(runs: list[Run]) -> str:
             label = unique
         else:
             query = urllib.parse.urlencode({"dir": path})
-            # Open in the current window/tab (no target="_blank"); the m3dash
-            # header brand links back to this index.
             label = f'<a href="run?{query}">{unique}</a>'
         rows.append(
             "<tr>"
@@ -313,6 +311,10 @@ def serve(
     global _index
     _index = RunIndex(roots)
     _index.start()
+    logger.info(
+        "Scanning for runs under: %s",
+        ", ".join(str(root) for root in roots) or "(none)",
+    )
 
     origins = (_origins(local_port) if socket_path and local_port else []) + (
         _origins(tcp_port) if tcp_port else []

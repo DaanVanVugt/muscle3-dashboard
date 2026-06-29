@@ -13,6 +13,15 @@ pip install -e .[dev]
 pytest
 ```
 
+The per-run **simulation graph** is drawn from the run's `configuration.ymmsl`
+by [`ymmsl2svg`](https://github.com/multiscale/ymmsl2svg), an optional
+dependency. Install it with the `graph` extra (without it the rest of the
+dashboard works and the graph card is simply hidden):
+
+```bash
+pip install -e .[dev,graph]
+```
+
 # How to use
 ```bash
 # make sure your virtual environment is activated
@@ -51,10 +60,10 @@ shared filesystem, so sshd and m3dash must be on the same machine.
 
 ```bash
 module load IMAS-MUSCLE3        # whatever puts m3dash on PATH
-m3dash serve ~/runs ~/pds       # roots to scan; default: current dir
+m3dash socket ~/runs ~/pds      # roots to scan; default: current dir
 ```
 
-`m3dash serve` runs in the foreground. Note that `m3dash` often lives
+`m3dash socket` runs in the foreground. Note that `m3dash` often lives
 behind `module load`, which a non-interactive ssh shell does *not* run.
 
 ## TCP access
@@ -76,7 +85,7 @@ loopback port is connectable by other users on the same node.
 Each command takes the run roots to scan as positional arguments,
 defaulting to the current directory:
 
-* `m3dash serve [ROOTS...]` — for remote access: serve on a unix socket
+* `m3dash socket [ROOTS...]` — for remote access: serve on a unix socket
   reached through your SSH forward (blocking). `--socket`,
   `--local-port`.
 * `m3dash open [ROOTS...]` — on this machine: serve on a loopback TCP
@@ -85,7 +94,24 @@ defaulting to the current directory:
 * `m3dash ls [ROOTS...] [--json]` — list discovered runs on the
   terminal.
 
-Roots are fixed for a server's life; restart `serve`/`open` to change
+Roots are fixed for a server's life; restart `socket`/`open` to change
 them.
 
-Clicking a run opens its per-run dashboard (see "How to use" above).
+## The per-run dashboard
+
+Clicking a run opens its dashboard, a single page top to bottom:
+
+* a **crash banner** (only on failure) naming the likely-responsible
+  component(s) and any collateral crashes;
+* a **simulation graph** of the coupling (from `configuration.ymmsl` via
+  the optional `graph` extra), with a colour legend and components coloured
+  by status (running / finished / crashed) and the likely-responsible
+  component on a crash outlined and its log opened automatically; click any
+  component to inspect it (without the `graph` extra a dropdown lists the
+  components instead);
+* a **component summary** for the clicked component — a port block plus
+  its program, settings and description, with referenced text files as
+  inline links that open in a read-only viewer (with copy-path and
+  copy-contents buttons);
+* the **log files** — the manager log and each component's stdout/stderr,
+  with an instance selector for multiplicity (vector-port) components.
